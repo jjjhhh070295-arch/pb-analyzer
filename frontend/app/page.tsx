@@ -90,12 +90,28 @@ export default function Home() {
                       </>}
                     </div>
                   </div>
-                  <div className="flex gap-4 ml-4 shrink-0">
+                  <div className="flex gap-4 ml-4 shrink-0 items-center">
                     <Link href={`/sessions/new?customer_id=${c.customer_id}&pb_name=${encodeURIComponent(c.primary_pb)}`}
                       className="text-sm text-navy font-medium hover:text-gold transition-colors">새 상담</Link>
                     {latest && (
-                      <Link href={`/sessions/${latest.session_id}`}
-                        className="text-sm text-slate-500 hover:text-navy transition-colors">결과 보기</Link>
+                      <>
+                        <Link href={`/sessions/${latest.session_id}`}
+                          className="text-sm text-slate-500 hover:text-navy transition-colors">결과 보기</Link>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`${c.name} 고객의 최근 상담(${latest.session_id})을 삭제하시겠습니까?`)) return;
+                            try {
+                              await api.sessions.delete(latest.session_id);
+                              setSessions(prev => prev.filter(s => s.session_id !== latest.session_id));
+                            } catch (e) {
+                              alert(e instanceof Error ? e.message : "삭제 실패");
+                            }
+                          }}
+                          title="최근 상담 삭제"
+                          className="text-slate-300 hover:text-red-500 transition-colors text-sm">
+                          🗑
+                        </button>
+                      </>
                     )}
                   </div>
                 </li>

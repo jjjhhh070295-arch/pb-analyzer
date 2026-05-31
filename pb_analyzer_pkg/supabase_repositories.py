@@ -211,6 +211,12 @@ class SupabaseSessionRepository(SessionRepository):
         if not resp.data:
             raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")
 
+    def delete(self, session_id: str) -> None:
+        resp = (self._c.table("sessions").delete()
+                .eq("session_id", session_id).execute())
+        if not resp.data:
+            raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")
+
     def list_by_customer(self, customer_id: str) -> list[Session]:
         resp = (self._c.table("sessions").select("*")
                 .eq("customer_id", customer_id).order("consult_datetime").execute())

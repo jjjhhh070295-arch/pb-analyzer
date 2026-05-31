@@ -1,23 +1,29 @@
 "use client";
 import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, type Session } from "@/lib/api";
+import { api, type Session, type AnalysisResult } from "@/lib/api";
 import FactorCard from "@/components/FactorCard";
 import FlagList from "@/components/FlagList";
 import FollowUpPanel from "@/components/FollowUpPanel";
 import PortfolioTab from "@/components/PortfolioTab";
+import EditFactorsModal from "@/components/EditFactorsModal";
 
 const fmt = (n: number | null) => n == null ? "—" : `${(n * 100).toFixed(0)}%`;
 const fmtAmt = (n: number | null) => n == null ? "—" : `${(n / 100000000).toFixed(1)}억`;
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<"factors" | "flags" | "questions" | "portfolio">("factors");
   const [confirming, setConfirming] = useState(false);
   const [resolvingFlag, setResolvingFlag] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const refetch = async () => {
     const s = await api.sessions.get(id);
@@ -97,6 +103,29 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  // 7요인 직접 편집 저장
+  const saveEdited = async (next: AnalysisResult) => {
+    try {
+      await api.sessions.updateResult(id, next);
+      await refetch();
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "저장 실패");
+    }
+  };
+
+  const deleteSession = async () => {
+    setDeleting(true);
+    try {
+      await api.sessions.delete(id);
+      router.push("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "삭제 실패");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   // 확정 후 PB가 다시 수정하고 싶을 때 → 검수중 상태로 되돌리기 (재분석 안 함)
   const revertToDraft = async () => {
     setReanalyzing(true);
@@ -131,7 +160,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               ? <span className="badge-confirmed text-[10px] px-2.5 py-0.5 rounded shrink-0">확정</span>
               : <span className="bg-white/15 text-white text-[10px] px-2.5 py-0.5 rounded shrink-0 font-medium">검수중</span>}
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 items-center">
+            {!confirmed && (
+              <button onClick={() => setEditing(true)}
+                className="border border-blue-100/40 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-white/10 transition-colors">
+                ✎ 7요인 편집
+              </button>
+            )}
             {confirmed ? (
               <>
                 <button onClick={revertToDraft} disabled={reanalyzing}
@@ -149,6 +184,10 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                 {confirming ? "처리 중…" : "✓ 검수 확정"}
               </button>
             )}
+            <button onClick={() => setConfirmDelete(true)} title="이 상담 삭제"
+              className="text-blue-100 hover:text-red-300 transition-colors px-2 py-1.5 text-sm">
+              🗑
+            </button>
           </div>
         </div>
         <div className="gold-accent-line" />
@@ -272,6 +311,33 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <PortfolioTab sessionId={id} confirmed={confirmed} />
         )}
       </div>
+
+      {editing && (
+        <EditFactorsModal
+          result={r}
+          onClose={() => setEditing(false)}
+          onSave={saveEdited}
+        />
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <p className="text-base font-bold text-slate-900 mb-2">상담 삭제</p>
+            <p className="text-sm text-slate-600 mb-5 leading-relaxed">
+              <strong className="text-navy">{session.customer_name}</strong> 고객의 <span className="font-mono text-xs">{session.session_id}</span> 상담을 완전히 삭제합니다. 되돌릴 수 없습니다.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(false)} disabled={deleting}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">취소</button>
+              <button onClick={deleteSession} disabled={deleting}
+                className="bg-red-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {deleting ? "삭제 중…" : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

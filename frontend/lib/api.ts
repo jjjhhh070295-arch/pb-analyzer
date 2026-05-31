@@ -137,5 +137,14 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+    updateResult: (id: string, result: AnalysisResult) =>
+      req<{ session_id: string; status: string }>(`/sessions/${id}/result`, {
+        method: "PUT",
+        body: JSON.stringify(result),
+      }),
+    delete: (id: string) =>
+      fetch(`${BASE}/sessions/${id}`, { method: "DELETE" }).then(res => {
+        if (!res.ok && res.status !== 204) throw new Error("삭제 실패");
+      }),
   },
 };

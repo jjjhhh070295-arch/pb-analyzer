@@ -312,6 +312,36 @@ def reanalyze(session_id: str, body: ReanalyzeIn, background_tasks: BackgroundTa
     return {"session_id": session_id, "status": "analyzing"}
 
 
+@router.delete("/{session_id}", status_code=204)
+def delete_session(session_id: str):
+    try:
+        _session_repo().delete(session_id)
+    except KeyError:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+    _tasks.pop(session_id, None)
+    return None
+
+
+@router.put("/{session_id}/result")
+def update_session_result(session_id: str, body: dict):
+    """PB가 7요인 분석 결과를 직접 수정한다. body는 AnalysisResult 전체 dict.
+    재분석 없이 그대로 저장하고 상태를 검수중으로 되돌린다.
+    """
+    repo = _session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+
+    from analysis_schema import AnalysisResult
+    try:
+        new_result = AnalysisResult.from_dict(body)
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 결과 형식: {e}")
+
+    repo.update_result(session_id, new_result, status=SessionStatus.DRAFT.value)
+    return {"session_id": session_id, "status": SessionStatus.DRAFT.value}
+
+
 @router.patch("/{session_id}/confirm")
 def confirm_session(session_id: str):
     try:

@@ -83,6 +83,9 @@ class SessionRepository(ABC):
     def update_status(self, session_id: str, status: str) -> None: ...
 
     @abstractmethod
+    def delete(self, session_id: str) -> None: ...
+
+    @abstractmethod
     def list_by_customer(self, customer_id: str) -> list[Session]: ...
 
     @abstractmethod
@@ -224,6 +227,20 @@ class ExcelSessionRepository(SessionRepository):
                 row[st_col-1].value = status
                 wb.save(self.path); return
         raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")
+
+    def delete(self, session_id: str) -> None:
+        wb, ws = self._load()
+        header = [c.value for c in ws[1]]
+        sid_col = header.index("session_id")
+        target_row = None
+        for i, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            if row[sid_col].value == session_id:
+                target_row = i
+                break
+        if target_row is None:
+            raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")
+        ws.delete_rows(target_row, 1)
+        wb.save(self.path)
 
     def list_by_customer(self, customer_id: str) -> list[Session]:
         return [self._row_to_session(d) for d in self._rows()
