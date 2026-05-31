@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;          /* slate-50 */
+  --foreground: #0f172a;          /* slate-900 */
+  --navy: #1e3a8a;                /* blue-900 */
+  --navy-dark: #1e2a5e;
+  --gold: #d4a14b;                /* premium gold */
+  --gold-dark: #b8862e;
+  --gold-light: #f5e1a8;
 }
 
 @theme inline {
@@ -12,15 +17,72 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ─── 재사용 클래스 ────────────────────────────────────────────────── */
+
+.bg-navy            { background-color: var(--navy); }
+.bg-navy-dark       { background-color: var(--navy-dark); }
+.text-navy          { color: var(--navy); }
+.border-navy        { border-color: var(--navy); }
+.bg-gold            { background-color: var(--gold); }
+.bg-gold-dark       { background-color: var(--gold-dark); }
+.bg-gold-light      { background-color: var(--gold-light); }
+.text-gold          { color: var(--gold-dark); }
+.border-gold        { border-color: var(--gold); }
+
+/* 헤더 네이비 그라데이션 */
+.bg-header-gradient {
+  background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 50%, #1e40af 100%);
+}
+
+/* 골드 강조선 */
+.gold-accent-line {
+  border-bottom: 2px solid var(--gold);
+}
+
+/* 프리미엄 카드 */
+.card-premium {
+  background: white;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.06);
+  border-radius: 12px;
+}
+
+.card-premium:hover {
+  box-shadow: 0 4px 12px rgba(30, 58, 138, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+  border-color: #cbd5e1;
+}
+
+/* 확정 골드 배지 */
+.badge-confirmed {
+  background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+  color: white;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 네이비 버튼 */
+.btn-navy {
+  background-color: var(--navy);
+  color: white;
+  transition: background-color 0.15s ease;
+}
+.btn-navy:hover { background-color: var(--navy-dark); }
+.btn-navy:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 골드 버튼 */
+.btn-gold {
+  background-color: var(--gold);
+  color: white;
+  transition: background-color 0.15s ease;
+  font-weight: 600;
+}
+.btn-gold:hover { background-color: var(--gold-dark); }
+.btn-gold:disabled { opacity: 0.5; cursor: not-allowed; }

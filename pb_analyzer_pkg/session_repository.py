@@ -150,8 +150,11 @@ class ExcelSessionRepository(SessionRepository):
         """다음 session_id를 미리 확보한다 (백그라운드 분석용)."""
         return self._gen_id({str(r["session_id"]) for r in self._rows()})
 
-    def update_result(self, session_id: str, result: AnalysisResult) -> None:
-        """분석 결과(JSON + 요약 칸)를 덮어쓴다. 플래그 해소 등에 사용."""
+    def update_result(self, session_id: str, result: AnalysisResult,
+                      raw_text: Optional[str] = None,
+                      status: Optional[str] = None) -> None:
+        """분석 결과(JSON + 요약 칸)를 덮어쓴다. 플래그 해소·재분석에 사용.
+        raw_text 또는 status를 함께 넘기면 그 컬럼도 갱신한다."""
         wb, ws = self._load()
         header = [c.value for c in ws[1]]
         col = {h: i for i, h in enumerate(header)}
@@ -176,6 +179,10 @@ class ExcelSessionRepository(SessionRepository):
                 row[col["투자기간(년)"]].value = result.horizon.years if result.horizon.years is not None else ""
                 row[col["미해결플래그수"]].value = sum(1 for f in result.flags if not f.resolved)
                 row[col["추가질문수"]].value = len(result.follow_up_questions)
+                if raw_text is not None:
+                    row[col["raw_text"]].value = raw_text
+                if status is not None:
+                    row[col["status"]].value = status
                 wb.save(self.path)
                 return
         raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")

@@ -132,5 +132,10 @@ export const api = {
     confirm: (id: string) => req<{ session_id: string; status: string }>(`/sessions/${id}/confirm`, { method: "PATCH" }),
     resolveFlag: (id: string, ruleId: string) =>
       req<{ resolved: boolean }>(`/sessions/${id}/flags/${ruleId}/resolve`, { method: "PATCH" }),
+    reanalyze: (id: string, body: { additional_text?: string; replace_text?: string }) =>
+      req<{ session_id: string; status: string }>(`/sessions/${id}/reanalyze`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
   },
 };

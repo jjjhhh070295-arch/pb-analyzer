@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
-import { use } from "react";
+import { useEffect, useState, use } from "react";
 import { api, type Session } from "@/lib/api";
 
 const fmtPct = (n: number | null) => n == null ? null : `${(n * 100).toFixed(0)}%`;
@@ -9,9 +8,9 @@ const fmtAmt = (n: number | null) =>
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4">
-      <dt className="text-sm font-medium text-gray-500">{label}</dt>
-      <dd className="mt-1 sm:mt-0 sm:col-span-2 text-sm text-gray-900">{children}</dd>
+    <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 border-b border-slate-100 last:border-b-0">
+      <dt className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</dt>
+      <dd className="mt-1 sm:mt-0 sm:col-span-2 text-sm text-slate-900 leading-relaxed">{children}</dd>
     </div>
   );
 }
@@ -54,44 +53,46 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
   })();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-5">
-        <p className="text-xs text-gray-400 mb-1">자산관리 분석 결과</p>
-        <h1 className="text-2xl font-bold text-gray-900">{session.customer_name} 고객님</h1>
-        <p className="text-sm text-gray-500 mt-0.5">상담일: {session.consult_date} · 담당 {session.pb_name}</p>
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-header-gradient text-white">
+        <div className="max-w-3xl mx-auto px-6 py-8 text-center">
+          <p className="text-gold text-[11px] font-semibold tracking-[0.2em] mb-2">PRIVATE WEALTH ADVISORY</p>
+          <h1 className="text-2xl font-bold tracking-tight">{session.customer_name} <span className="text-blue-100 font-normal text-lg">고객님</span></h1>
+          <p className="text-blue-100 text-xs mt-2">{session.consult_date} · 담당 {session.pb_name}</p>
+        </div>
+        <div className="gold-accent-line" />
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 py-8">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b bg-gray-50">
-            <h2 className="text-base font-semibold text-gray-700">투자 성향 분석 요약</h2>
+      <main className="max-w-3xl mx-auto px-6 py-10">
+        <div className="card-premium overflow-hidden">
+          <div className="px-7 py-4 bg-slate-50 border-b border-slate-200">
+            <h2 className="text-sm font-bold text-navy tracking-tight">투자 성향 분석 요약</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">고객님과의 상담 내용을 바탕으로 정리한 자산관리 방향입니다.</p>
           </div>
-          <dl className="divide-y divide-gray-100 px-6">
+          <dl className="px-7">
             <Row label="목표 수익률">{returnStr}</Row>
             <Row label="위험 성향">{riskLevel ?? "미확인"}</Row>
-            <Row label="투자 기간">
-              {r.horizon.years != null ? `${r.horizon.years}년` : "미확인"}
-            </Row>
+            <Row label="투자 기간">{r.horizon.years != null ? `${r.horizon.years}년` : "미확인"}</Row>
 
             {(r.tax.items.length > 0 || r.tax.annual_financial_income != null) && (
               <Row label="세금 고려 사항">
-                <ul className="space-y-0.5">
+                <ul className="space-y-1">
                   {r.tax.annual_financial_income != null && (
-                    <li>연간 금융소득 {fmtAmt(r.tax.annual_financial_income)}</li>
+                    <li>연간 금융소득 <span className="font-semibold">{fmtAmt(r.tax.annual_financial_income)}</span></li>
                   )}
-                  {r.tax.items.map((item, i) => <li key={i}>{item}</li>)}
+                  {r.tax.items.map((item, i) => <li key={i}>· {item}</li>)}
                 </ul>
               </Row>
             )}
 
             {r.liquidity.events.length > 0 && (
               <Row label="유동성 계획">
-                <ul className="space-y-0.5">
+                <ul className="space-y-1">
                   {r.liquidity.events.map((e, i) => (
                     <li key={i}>
-                      {e.when && <span>{e.when}</span>}
-                      {e.amount != null && <span className="ml-2">{fmtAmt(e.amount)}</span>}
-                      {e.purpose && <span className="text-gray-500 ml-1">({e.purpose})</span>}
+                      {e.when && <span className="text-slate-600">{e.when}</span>}
+                      {e.amount != null && <span className="ml-2 font-semibold text-navy">{fmtAmt(e.amount)}</span>}
+                      {e.purpose && <span className="text-slate-500 ml-1.5 text-xs">({e.purpose})</span>}
                     </li>
                   ))}
                 </ul>
@@ -100,16 +101,16 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
 
             {r.legal.items.length > 0 && (
               <Row label="법적 제약">
-                <ul className="space-y-0.5">{r.legal.items.map((item, i) => <li key={i}>{item}</li>)}</ul>
+                <ul className="space-y-1">{r.legal.items.map((item, i) => <li key={i}>· {item}</li>)}</ul>
               </Row>
             )}
 
             {(r.unique.notes.length > 0 || r.unique.excluded_sectors.length > 0) && (
               <Row label="기타 고려 사항">
-                <ul className="space-y-0.5">
-                  {r.unique.notes.map((n, i) => <li key={i}>{n}</li>)}
+                <ul className="space-y-1">
+                  {r.unique.notes.map((n, i) => <li key={i}>· {n}</li>)}
                   {r.unique.excluded_sectors.length > 0 && (
-                    <li className="text-gray-500">배제 업종: {r.unique.excluded_sectors.join(", ")}</li>
+                    <li className="text-gold font-semibold text-xs tracking-wide mt-1">배제 업종: {r.unique.excluded_sectors.join(", ")}</li>
                   )}
                 </ul>
               </Row>
@@ -117,8 +118,9 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
           </dl>
         </div>
 
-        <p className="mt-6 text-xs text-center text-gray-400">
-          본 자료는 참고용 분석 결과이며, 최종 투자 결정과 책임은 고객에게 있습니다.
+        <p className="mt-8 text-[11px] text-center text-slate-400 leading-relaxed">
+          본 자료는 참고용 분석 결과이며, 최종 투자 결정과 책임은 고객에게 있습니다.<br/>
+          자세한 사항은 담당 PB에게 문의해주시기 바랍니다.
         </p>
       </main>
     </div>
@@ -127,6 +129,8 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
 
 function Blank({ text }: { text: string }) {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400 text-sm">{text}</div>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <p className="text-slate-400 text-sm">{text}</p>
+    </div>
   );
 }

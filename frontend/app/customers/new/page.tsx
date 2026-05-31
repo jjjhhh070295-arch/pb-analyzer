@@ -28,37 +28,41 @@ export default function NewCustomer() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-4 flex items-center gap-3">
-        <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">← 목록</Link>
-        <h1 className="text-xl font-bold text-gray-900">고객 등록</h1>
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-header-gradient text-white">
+        <div className="max-w-3xl mx-auto px-6 py-5 flex items-center gap-3">
+          <Link href="/" className="text-blue-100 hover:text-gold text-xs font-medium">← 목록</Link>
+          <span className="text-blue-200">|</span>
+          <h1 className="text-lg font-bold tracking-tight">신규 고객 등록</h1>
+        </div>
+        <div className="gold-accent-line" />
       </header>
 
-      <main className="max-w-lg mx-auto px-6 py-10">
-        <form onSubmit={submit} className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+      <main className="max-w-lg mx-auto px-6 py-12">
+        <form onSubmit={submit} className="card-premium p-7 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">고객명 *</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">고객명</label>
             <input required value={form.name} onChange={set("name")}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/15 focus:border-blue-900 bg-white"
               placeholder="홍길동" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">생년월일 *</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">생년월일</label>
             <input required value={form.birth_date} onChange={set("birth_date")}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/15 focus:border-blue-900 bg-white"
               placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">담당 PB *</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">담당 PB</label>
             <input required value={form.primary_pb} onChange={set("primary_pb")}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/15 focus:border-blue-900 bg-white"
               placeholder="박상우" />
           </div>
 
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
 
           <button type="submit" disabled={saving}
-            className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            className="btn-navy w-full py-3 rounded-lg text-sm shadow-md">
             {saving ? "등록 중…" : "등록"}
           </button>
         </form>

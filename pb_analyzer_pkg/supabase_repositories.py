@@ -197,10 +197,16 @@ class SupabaseSessionRepository(SessionRepository):
         if not resp.data:
             raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")
 
-    def update_result(self, session_id: str, result: AnalysisResult) -> None:
-        resp = (self._c.table("sessions")
-                .update({"result_json": json.dumps(result.to_dict(), ensure_ascii=False),
-                         **self._summary_cols(result)})
+    def update_result(self, session_id: str, result: AnalysisResult,
+                      raw_text: Optional[str] = None,
+                      status: Optional[str] = None) -> None:
+        payload = {"result_json": json.dumps(result.to_dict(), ensure_ascii=False),
+                   **self._summary_cols(result)}
+        if raw_text is not None:
+            payload["raw_text"] = raw_text
+        if status is not None:
+            payload["status"] = status
+        resp = (self._c.table("sessions").update(payload)
                 .eq("session_id", session_id).execute())
         if not resp.data:
             raise KeyError(f"세션을 찾을 수 없습니다: {session_id}")

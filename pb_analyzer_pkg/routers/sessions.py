@@ -272,6 +272,46 @@ def get_session(session_id: str):
     return _session_to_dict(s)
 
 
+class ReanalyzeIn(BaseModel):
+    additional_text: str = ""    # PB가 추가질문 답변 등 보강 정보로 입력
+    replace_text: Optional[str] = None   # 원문 자체를 통째로 교체할 때
+
+
+def _do_reanalysis(session_id: str, raw_text: str):
+    try:
+        report = analyze(raw_text, _llm(raw_text))
+        result = validate(report.result, raw_text)
+        _session_repo().update_result(
+            session_id, result, raw_text=raw_text,
+            status=SessionStatus.DRAFT.value,   # 재분석 후엔 다시 검수중
+        )
+        _tasks[session_id]["status"] = "done"
+    except Exception as e:
+        _tasks[session_id]["status"] = "error"
+        _tasks[session_id]["error"] = str(e)
+
+
+@router.patch("/{session_id}/reanalyze", status_code=202)
+def reanalyze(session_id: str, body: ReanalyzeIn, background_tasks: BackgroundTasks):
+    repo = _session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+
+    if body.replace_text is not None:
+        new_text = body.replace_text
+    else:
+        extra = (body.additional_text or "").strip()
+        new_text = sess.raw_text + (f"\n\n[추가 정보]\n{extra}" if extra else "")
+
+    if not new_text.strip():
+        raise HTTPException(400, "분석할 텍스트가 비어 있습니다.")
+
+    _tasks[session_id] = {"status": "analyzing", "error": None}
+    background_tasks.add_task(_do_reanalysis, session_id=session_id, raw_text=new_text)
+    return {"session_id": session_id, "status": "analyzing"}
+
+
 @router.patch("/{session_id}/confirm")
 def confirm_session(session_id: str):
     try:

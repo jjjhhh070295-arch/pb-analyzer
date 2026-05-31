@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
-import { use } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { api, type Session } from "@/lib/api";
 import FactorCard from "@/components/FactorCard";
@@ -17,19 +16,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [activeTab, setActiveTab] = useState<"factors" | "flags" | "questions" | "portfolio">("factors");
   const [confirming, setConfirming] = useState(false);
   const [resolvingFlag, setResolvingFlag] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    api.sessions.get(id).then(s => {
-      if ("result" in s) setSession(s as Session);
-    });
-  }, [id]);
+  const refetch = async () => {
+    const s = await api.sessions.get(id);
+    if ("result" in s) setSession(s as Session);
+  };
 
-  if (!session) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">불러오는 중…</div>;
+  useEffect(() => { refetch(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 text-sm">
+        불러오는 중…
+      </div>
+    );
+  }
 
   const r = session.result;
   const flags = r.flags ?? [];
   const unresolvedRed = flags.filter(f => !f.resolved && f.severity === "red").length;
+  const unresolved = flags.filter(f => !f.resolved).length;
   const inlineFlags = (factor: string) => flags.filter(f => f.inline_factor === factor);
   const confirmed = session.status === "확정";
 
@@ -41,7 +49,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     setConfirming(true);
     try {
       await api.sessions.confirm(id);
-      setSession(s => s ? { ...s, status: "확정" } : s);
+      await refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "확정 실패");
     } finally {
@@ -53,10 +61,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     setResolvingFlag(ruleId);
     try {
       await api.sessions.resolveFlag(id, ruleId);
-      setSession(s => {
-        if (!s) return s;
-        return { ...s, result: { ...s.result, flags: s.result.flags.map(f => f.rule_id === ruleId ? { ...f, resolved: true } : f) } };
-      });
+      setSession(s => s ? { ...s, result: { ...s.result, flags: s.result.flags.map(f => f.rule_id === ruleId ? { ...f, resolved: true } : f) } } : s);
     } catch (e) {
       setError(e instanceof Error ? e.message : "해소 실패");
     } finally {
@@ -64,69 +69,123 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  const unresolved = flags.filter(f => !f.resolved).length;
+  // 추가질문 답변 → 재분석. 확정 상태에서는 자동으로 검수중으로 되돌림(서버가 처리).
+  const submitAnswers = async (combined: string) => {
+    setReanalyzing(true);
+    setError("");
+    try {
+      await api.sessions.reanalyze(id, { additional_text: combined });
+      // 폴링
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const s = await api.sessions.getStatus(id);
+        if (s.status === "done") {
+          await refetch();
+          setActiveTab("factors");
+          return;
+        }
+        if (s.status === "error") {
+          setError(s.error ?? "재분석 오류");
+          return;
+        }
+      }
+      setError("재분석 시간 초과");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "재분석 실패");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  // 확정 후 PB가 다시 수정하고 싶을 때 → 검수중 상태로 되돌리기 (재분석 안 함)
+  const revertToDraft = async () => {
+    setReanalyzing(true);
+    try {
+      // raw_text 그대로 재분석 = 사실상 상태만 검수중으로 변경되는 효과
+      await api.sessions.reanalyze(id, { additional_text: "" });
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const s = await api.sessions.getStatus(id);
+        if (s.status === "done") { await refetch(); return; }
+        if (s.status === "error") { setError(s.error ?? "오류"); return; }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "재수정 진입 실패");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">← 목록</Link>
-          <span className="text-xl font-bold text-gray-900">{session.customer_name} 상담 결과</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${confirmed ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-            {session.status}
-          </span>
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-header-gradient text-white">
+        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/" className="text-blue-100 hover:text-gold text-xs font-medium whitespace-nowrap">← 목록</Link>
+            <span className="text-blue-200">|</span>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold tracking-tight truncate">{session.customer_name} 고객 상담 분석</h1>
+              <p className="text-blue-100 text-xs mt-0.5">{session.consult_date} · 담당 {session.pb_name} · <span className="font-mono">{session.session_id}</span></p>
+            </div>
+            {confirmed
+              ? <span className="badge-confirmed text-[10px] px-2.5 py-0.5 rounded shrink-0">확정</span>
+              : <span className="bg-white/15 text-white text-[10px] px-2.5 py-0.5 rounded shrink-0 font-medium">검수중</span>}
+          </div>
+          <div className="flex gap-2 shrink-0">
+            {confirmed ? (
+              <>
+                <button onClick={revertToDraft} disabled={reanalyzing}
+                  className="border border-blue-100/40 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-white/10 transition-colors disabled:opacity-50">
+                  {reanalyzing ? "처리중…" : "재수정 모드"}
+                </button>
+                <Link href={`/customer/${id}`}
+                  className="bg-white text-navy px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-gold hover:text-white transition-colors">
+                  고객 화면 보기 →
+                </Link>
+              </>
+            ) : (
+              <button onClick={confirm} disabled={confirming}
+                className="btn-gold px-5 py-2 rounded-lg text-sm shadow-md">
+                {confirming ? "처리 중…" : "✓ 검수 확정"}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          {confirmed && (
-            <Link href={`/customer/${id}`}
-              className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">
-              고객 화면 보기 →
-            </Link>
-          )}
-          {!confirmed && (
-            <button onClick={confirm} disabled={confirming}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
-              {confirming ? "처리 중…" : "✓ 검수 확정"}
-            </button>
-          )}
-        </div>
+        <div className="gold-accent-line" />
       </header>
 
-      {/* D-2 게이트: 미해결 빨간 플래그 경고 */}
       {unresolvedRed > 0 && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 text-sm text-red-700">
           🚨 미해결 빨간 플래그 {unresolvedRed}개 — 확정 전 반드시 확인하세요.
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-sm text-red-600">
-          {error}
-          <button onClick={() => setError("")} className="ml-2 underline text-xs">닫기</button>
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-sm text-red-600 flex items-center">
+          <span>{error}</span>
+          <button onClick={() => setError("")} className="ml-3 underline text-xs">닫기</button>
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto px-6 py-6">
-        {/* 메타 정보 */}
-        <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 mb-5 text-sm text-gray-600 flex flex-wrap gap-4">
-          <span>상담일: <strong>{session.consult_date}</strong></span>
-          <span>담당 PB: <strong>{session.pb_name}</strong></span>
-          <span>세션 ID: <span className="font-mono text-xs">{session.session_id}</span></span>
-          {unresolved > 0 && <span className="ml-auto text-orange-600">미해결 플래그 {unresolved}개</span>}
+      {reanalyzing && (
+        <div className="bg-blue-50 border-b border-blue-200 px-6 py-2.5 text-sm text-navy flex items-center gap-2">
+          <span className="animate-spin">⏳</span> 재분석 중… 잠시만 기다려주세요.
         </div>
+      )}
 
-        {/* 탭 */}
-        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg w-fit flex-wrap">
+      <div className="max-w-5xl mx-auto px-6 py-7">
+        <div className="flex items-center gap-1 mb-5 bg-white border border-slate-200 rounded-xl p-1 w-fit shadow-sm">
           {(["factors", "flags", "questions", "portfolio"] as const).map(tab => {
             const labels = {
               factors: "7요인",
-              flags: `플래그 (${unresolved})`,
-              questions: `추가질문 (${r.follow_up_questions.length})`,
-              portfolio: confirmed ? "📊 포트폴리오" : "포트폴리오",
+              flags: `플래그${unresolved > 0 ? ` · ${unresolved}` : ""}`,
+              questions: `추가질문${r.follow_up_questions.length > 0 ? ` · ${r.follow_up_questions.length}` : ""}`,
+              portfolio: "포트폴리오",
             };
+            const isActive = activeTab === tab;
             return (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-md text-sm transition-colors ${activeTab === tab ? "bg-white shadow text-gray-900 font-medium" : "text-gray-500 hover:text-gray-700"}`}>
+                className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${isActive ? "bg-navy text-white font-medium shadow-sm" : "text-slate-500 hover:text-navy"}`}>
                 {labels[tab]}
               </button>
             );
@@ -136,72 +195,79 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         {/* 7요인 탭 */}
         {activeTab === "factors" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FactorCard title="목표수익률" factor="goal_return" meta={r.goal_return.meta} inlineFlags={inlineFlags("goal_return")}>
-              {r.goal_return.raw_text && <p className="font-medium">{r.goal_return.raw_text}</p>}
-              <p className="text-gray-500">{fmt(r.goal_return.return_min)} ~ {fmt(r.goal_return.return_max)}</p>
+            <FactorCard title="목표수익률" meta={r.goal_return.meta} inlineFlags={inlineFlags("goal_return")}>
+              {r.goal_return.raw_text && <p className="font-semibold text-navy">{r.goal_return.raw_text}</p>}
+              <p className="text-slate-500 text-xs">{fmt(r.goal_return.return_min)} ~ {fmt(r.goal_return.return_max)}</p>
             </FactorCard>
 
-            <FactorCard title="위험허용도" factor="risk_tolerance" meta={{ status: r.risk_tolerance.status as "explicit" | "inferred" | "missing", evidence: null, confidence: null }} inlineFlags={inlineFlags("risk_tolerance")}>
+            <FactorCard title="위험허용도"
+              meta={{ status: r.risk_tolerance.status as "explicit" | "inferred" | "missing", evidence: null, confidence: null }}
+              inlineFlags={inlineFlags("risk_tolerance")}>
               <div className="space-y-1">
-                <div className="flex justify-between"><span className="text-gray-500">의향</span><span>{r.risk_tolerance.willingness.level ?? "—"}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">능력</span><span>{r.risk_tolerance.capacity.level ?? "—"}</span></div>
-                {r.risk_tolerance.binding && <div className="text-xs text-blue-600 mt-1">binding: {r.risk_tolerance.binding}</div>}
+                <div className="flex justify-between"><span className="text-slate-500 text-xs">의향</span><span className="font-medium">{r.risk_tolerance.willingness.level ?? "—"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500 text-xs">능력</span><span className="font-medium">{r.risk_tolerance.capacity.level ?? "—"}</span></div>
+                {r.risk_tolerance.binding && (
+                  <div className="text-[10px] text-gold mt-1 font-semibold tracking-wide">
+                    BINDING: {r.risk_tolerance.binding === "willingness" ? "의향" : "능력"}
+                  </div>
+                )}
               </div>
             </FactorCard>
 
-            <FactorCard title="투자 기간" factor="horizon" meta={r.horizon.meta} inlineFlags={inlineFlags("horizon")}>
-              <p className="font-medium">{r.horizon.years != null ? `${r.horizon.years}년` : "—"}</p>
+            <FactorCard title="투자 기간" meta={r.horizon.meta} inlineFlags={inlineFlags("horizon")}>
+              <p className="font-semibold text-navy">{r.horizon.years != null ? `${r.horizon.years}년` : "—"}</p>
             </FactorCard>
 
-            <FactorCard title="세금 요인" factor="tax" meta={r.tax.meta} inlineFlags={inlineFlags("tax")}>
+            <FactorCard title="세금 요인" meta={r.tax.meta} inlineFlags={inlineFlags("tax")}>
               {r.tax.annual_financial_income != null && (
-                <p>연 금융소득: <strong>{fmtAmt(r.tax.annual_financial_income)}</strong></p>
+                <p>연 금융소득 <span className="font-semibold text-navy">{fmtAmt(r.tax.annual_financial_income)}</span></p>
               )}
               {r.tax.items.length > 0 && (
-                <ul className="mt-1 space-y-0.5">{r.tax.items.map((item, i) => <li key={i} className="text-gray-600">• {item}</li>)}</ul>
+                <ul className="mt-1 space-y-0.5 text-xs">{r.tax.items.map((item, i) => <li key={i} className="text-slate-600">• {item}</li>)}</ul>
               )}
             </FactorCard>
 
-            <FactorCard title="유동성 필요시기" factor="liquidity" meta={r.liquidity.meta} inlineFlags={inlineFlags("liquidity")}>
+            <FactorCard title="유동성 필요시기" meta={r.liquidity.meta} inlineFlags={inlineFlags("liquidity")}>
               {r.liquidity.events.length > 0 ? (
                 <ul className="space-y-1">
                   {r.liquidity.events.map((e, i) => (
                     <li key={i} className="text-sm">
-                      <span className="text-gray-500">{e.when}</span>
-                      {e.amount != null && <span className="ml-2 font-medium">{fmtAmt(e.amount)}</span>}
-                      {e.purpose && <span className="ml-2 text-gray-500">({e.purpose})</span>}
+                      <span className="text-slate-500 text-xs">{e.when}</span>
+                      {e.amount != null && <span className="ml-2 font-semibold text-navy">{fmtAmt(e.amount)}</span>}
+                      {e.purpose && <span className="ml-2 text-slate-500 text-xs">({e.purpose})</span>}
                     </li>
                   ))}
                 </ul>
-              ) : <p className="text-gray-400">이벤트 없음</p>}
+              ) : <p className="text-slate-400 text-xs">단기 유동성 필요 없음</p>}
             </FactorCard>
 
-            <FactorCard title="법적 제약" factor="legal" meta={r.legal.meta} inlineFlags={inlineFlags("legal")}>
+            <FactorCard title="법적 제약" meta={r.legal.meta} inlineFlags={inlineFlags("legal")}>
               {r.legal.items.length > 0
-                ? <ul>{r.legal.items.map((item, i) => <li key={i}>• {item}</li>)}</ul>
-                : <p className="text-gray-400">제약 없음</p>}
+                ? <ul className="text-xs space-y-0.5">{r.legal.items.map((item, i) => <li key={i}>• {item}</li>)}</ul>
+                : <p className="text-slate-400 text-xs">제약 없음</p>}
             </FactorCard>
 
-            <FactorCard title="고유 상황" factor="unique" meta={r.unique.meta} inlineFlags={inlineFlags("unique")}>
-              {r.unique.notes.length > 0 && <ul>{r.unique.notes.map((n, i) => <li key={i}>• {n}</li>)}</ul>}
+            <FactorCard title="고유 상황" meta={r.unique.meta} inlineFlags={inlineFlags("unique")}>
+              {r.unique.notes.length > 0 && <ul className="text-xs space-y-0.5">{r.unique.notes.map((n, i) => <li key={i}>• {n}</li>)}</ul>}
               {r.unique.excluded_sectors.length > 0 && (
-                <p className="text-xs text-orange-600 mt-1">배제 업종: {r.unique.excluded_sectors.join(", ")}</p>
+                <p className="text-[11px] text-gold mt-1.5 font-semibold tracking-wide">배제 업종: {r.unique.excluded_sectors.join(", ")}</p>
               )}
             </FactorCard>
           </div>
         )}
 
-        {/* 플래그 탭 */}
         {activeTab === "flags" && (
           <FlagList flags={flags} onResolve={confirmed ? undefined : resolveFlag} loading={resolvingFlag} />
         )}
 
-        {/* 추가질문 탭 */}
         {activeTab === "questions" && (
-          <FollowUpPanel questions={r.follow_up_questions} />
+          <FollowUpPanel
+            questions={r.follow_up_questions}
+            onSubmit={submitAnswers}
+            submitting={reanalyzing}
+          />
         )}
 
-        {/* 포트폴리오 탭 */}
         {activeTab === "portfolio" && (
           <PortfolioTab sessionId={id} confirmed={confirmed} />
         )}
