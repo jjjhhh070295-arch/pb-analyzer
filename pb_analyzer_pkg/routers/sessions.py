@@ -1,3 +1,5 @@
+
+
 import os
 from dataclasses import asdict
 from typing import Optional
@@ -8,7 +10,7 @@ from pydantic import BaseModel
 from analyzer import analyze
 from validators import validate
 from models import SessionStatus
-from mock_llm import MockLLMClient
+from mock_llm import make_mock_llm
 from deps import get_customer_repo as _customer_repo, get_session_repo as _session_repo
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -16,13 +18,56 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 # 분석 진행 상태 (서버 메모리). 추후 DB/Redis로 이전 가능.
 _tasks: dict[str, dict] = {}
 
+# 데모용 더미 응답 — Anthropic API 키 없을 때 모든 분석에 이 결과를 돌려준다.
+# 실제 API 키가 설정되면 자동으로 무시되고 진짜 분석 결과가 나온다.
+_DEMO_RESPONSES = {
+    "goal_return": {
+        "status": "explicit", "evidence": "연 7~9% 수익을 원합니다",
+        "confidence": "상", "return_min": 0.07, "return_max": 0.09,
+        "raw_text": "연 7~9%",
+    },
+    "risk_tolerance": {
+        "status": "explicit",
+        "willingness": {"level": "중립", "evidence": "중간 정도 손실 감내 가능",
+                        "confidence": "중"},
+        "capacity": {"level": "중립", "evidence": "여유자금으로 운용",
+                     "confidence": "중"},
+        "binding": "willingness",
+    },
+    "horizon": {
+        "status": "explicit", "evidence": "5년 정도 묶어둘 수 있음",
+        "confidence": "상", "years": 5,
+    },
+    "tax": {
+        "status": "inferred", "evidence": "연 금융소득 약 3천만원 언급",
+        "confidence": "중",
+        "items": ["배당소득 있음"], "annual_financial_income": 30000000,
+    },
+    "liquidity": {
+        "status": "explicit", "evidence": "1년 내 부동산 잔금 5억",
+        "confidence": "상",
+        "events": [{"when": "1년 내", "amount": 500000000,
+                    "purpose": "부동산 잔금"}],
+    },
+    "legal": {
+        "status": "explicit", "evidence": "신탁 진행 중",
+        "confidence": "상",
+        "items": ["신탁 진행 중"],
+    },
+    "unique": {
+        "status": "explicit", "evidence": "ESG 선호, 담배 업종 기피",
+        "confidence": "중",
+        "notes": ["ESG 선호"], "excluded_sectors": ["tobacco"],
+    },
+}
+
 
 def _llm():
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
         from llm_client import AnthropicLLMClient
         return AnthropicLLMClient(api_key=api_key)
-    return MockLLMClient()
+    return make_mock_llm(_DEMO_RESPONSES)
 
 
 class StartAnalysisIn(BaseModel):
