@@ -22,7 +22,20 @@ from analysis_schema import AnalysisResult
 
 
 def _client() -> Client:
-    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError(
+            f"[SUPABASE-DEBUG] env vars missing: URL={'OK' if url else 'EMPTY'}, "
+            f"KEY={'OK' if key else 'EMPTY'}"
+        )
+    try:
+        return create_client(url, key)
+    except Exception as e:
+        raise RuntimeError(
+            f"[SUPABASE-DEBUG] create_client failed: {type(e).__name__}: {e}. "
+            f"URL prefix='{url[:40]}', KEY length={len(key)}, KEY prefix='{key[:20]}'"
+        ) from e
 
 
 # ---------------------------------------------------------------------------
