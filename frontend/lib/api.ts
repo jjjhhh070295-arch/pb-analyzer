@@ -109,6 +109,10 @@ export const api = {
     search: (name: string) => req<SearchResult>(`/customers/search?name=${encodeURIComponent(name)}`),
     create: (body: { name: string; birth_date: string; primary_pb: string }) =>
       req<Customer>("/customers", { method: "POST", body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      fetch(`${BASE}/customers/${id}`, { method: "DELETE" }).then(res => {
+        if (!res.ok && res.status !== 204) throw new Error("고객 삭제 실패");
+      }),
   },
   portfolio: {
     optimize: (session_id: string, years = 3) =>

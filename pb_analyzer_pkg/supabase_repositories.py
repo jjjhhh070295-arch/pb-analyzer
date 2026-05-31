@@ -99,6 +99,12 @@ class SupabaseCustomerRepository(CustomerRepository):
         resp = self._c.table("customers").select("*").order("registered_at").execute()
         return [Customer.from_row(r) for r in resp.data]
 
+    def delete(self, customer_id: str) -> None:
+        resp = (self._c.table("customers").delete()
+                .eq("customer_id", customer_id).execute())
+        if not resp.data:
+            raise KeyError(f"고객을 찾을 수 없습니다: {customer_id}")
+
 
 # ---------------------------------------------------------------------------
 # 세션 저장소

@@ -8,6 +8,8 @@ export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     Promise.all([api.customers.list(), api.sessions.list()])
@@ -107,12 +109,18 @@ export default function Home() {
                               alert(e instanceof Error ? e.message : "삭제 실패");
                             }
                           }}
-                          title="최근 상담 삭제"
-                          className="text-slate-300 hover:text-red-500 transition-colors text-sm">
+                          title="최근 상담만 삭제"
+                          className="text-slate-300 hover:text-amber-600 transition-colors text-sm">
                           🗑
                         </button>
                       </>
                     )}
+                    <button
+                      onClick={() => setDeleteTarget(c)}
+                      title="고객 완전 삭제 (모든 상담 포함)"
+                      className="text-slate-300 hover:text-red-500 transition-colors text-sm border-l border-slate-200 pl-3">
+                      ✕
+                    </button>
                   </div>
                 </li>
               );
@@ -124,6 +132,47 @@ export default function Home() {
       <footer className="max-w-5xl mx-auto px-6 py-8 text-center">
         <p className="text-[11px] text-slate-400 tracking-wide">© PB Wealth Analyzer · 분석 결과는 참고용이며 최종 투자 판단은 PB에게 있습니다</p>
       </footer>
+
+      {deleteTarget && (() => {
+        const linkedCount = sessions.filter(s => s.customer_id === deleteTarget.customer_id).length;
+        const confirmDelete = async () => {
+          setDeleting(true);
+          try {
+            await api.customers.delete(deleteTarget.customer_id);
+            setCustomers(prev => prev.filter(c => c.customer_id !== deleteTarget.customer_id));
+            setSessions(prev => prev.filter(s => s.customer_id !== deleteTarget.customer_id));
+            setDeleteTarget(null);
+          } catch (e) {
+            alert(e instanceof Error ? e.message : "삭제 실패");
+          } finally {
+            setDeleting(false);
+          }
+        };
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+              <p className="text-base font-bold text-slate-900 mb-2">고객 완전 삭제</p>
+              <p className="text-sm text-slate-600 mb-1 leading-relaxed">
+                <strong className="text-navy">{deleteTarget.name}</strong> <span className="text-xs text-slate-400 font-mono">({deleteTarget.customer_id})</span> 고객을 완전히 삭제합니다.
+              </p>
+              {linkedCount > 0 && (
+                <p className="text-sm text-red-600 mb-3 font-medium">
+                  ⚠ 연결된 상담 {linkedCount}건도 함께 삭제됩니다.
+                </p>
+              )}
+              <p className="text-xs text-slate-400 mb-5">되돌릴 수 없습니다.</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setDeleteTarget(null)} disabled={deleting}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">취소</button>
+                <button onClick={confirmDelete} disabled={deleting}
+                  className="bg-red-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                  {deleting ? "삭제 중…" : "고객 + 상담 모두 삭제"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

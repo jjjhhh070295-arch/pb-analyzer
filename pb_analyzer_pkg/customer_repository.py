@@ -50,6 +50,10 @@ class CustomerRepository(ABC):
     def list_all(self) -> list[Customer]:
         ...
 
+    @abstractmethod
+    def delete(self, customer_id: str) -> None:
+        ...
+
 
 # ---------------------------------------------------------------------------
 # 동명이인 해소 결과
@@ -172,6 +176,20 @@ class ExcelCustomerRepository(CustomerRepository):
 
     def list_all(self) -> list[Customer]:
         return [Customer.from_row(r) for r in self._read_all_rows()]
+
+    def delete(self, customer_id: str) -> None:
+        wb, ws = self._load_ws()
+        header = [c.value for c in ws[1]]
+        sid_col = header.index("customer_id")
+        target_row = None
+        for i, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            if str(row[sid_col].value) == customer_id:
+                target_row = i
+                break
+        if target_row is None:
+            raise KeyError(f"고객을 찾을 수 없습니다: {customer_id}")
+        ws.delete_rows(target_row, 1)
+        wb.save(self.path)
 
 
 # ---------------------------------------------------------------------------
