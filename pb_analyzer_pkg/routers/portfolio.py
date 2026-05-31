@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -62,6 +65,59 @@ def run_optimize(body: OptimizeRequest):
         raise HTTPException(503, str(e))
 
     return _result_to_dict(result)
+
+
+class PortfolioWeightIn(BaseModel):
+    asset_id: str
+    name: str
+    category: str
+    weight_pct: float           # 0~100
+
+
+class ConfirmPortfolioIn(BaseModel):
+    weights: list[PortfolioWeightIn]
+    note: Optional[str] = None     # PB 메모(고객 화면에도 노출)
+    metrics: Optional[dict] = None # 화면 표시용 지표(고객 화면엔 안 보임)
+
+
+@router.put("/sessions/{session_id}/confirm")
+def confirm_portfolio(session_id: str, body: ConfirmPortfolioIn):
+    """PB가 임의로 수정한 포트폴리오를 확정 저장. result.confirmed_portfolio에 들어가 고객 화면에 송출됨."""
+    repo = get_session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+
+    total = sum(w.weight_pct for w in body.weights)
+    if abs(total - 100.0) > 0.5:
+        raise HTTPException(400, f"비중 합계가 100%여야 합니다 (현재 {total:.1f}%).")
+
+    weights = [
+        {"asset_id": w.asset_id, "name": w.name, "category": w.category,
+         "weight": round(w.weight_pct / 100, 4), "weight_pct": round(w.weight_pct, 2)}
+        for w in body.weights if w.weight_pct > 0
+    ]
+
+    sess.result.confirmed_portfolio = {
+        "weights": weights,
+        "note": body.note,
+        "metrics": body.metrics,
+        "confirmed_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    repo.update_result(session_id, sess.result)
+    return sess.result.confirmed_portfolio
+
+
+@router.delete("/sessions/{session_id}/confirm", status_code=204)
+def clear_portfolio(session_id: str):
+    """확정 포트폴리오 제거(고객 화면에서 사라짐)."""
+    repo = get_session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+    sess.result.confirmed_portfolio = None
+    repo.update_result(session_id, sess.result)
+    return None
 
 
 @router.get("/universe")

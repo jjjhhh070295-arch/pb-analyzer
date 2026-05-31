@@ -60,6 +60,7 @@ export interface AnalysisResult {
   optimizer_constraints: Record<string, unknown>;
   flags: Flag[];
   total_investable: number | null;
+  confirmed_portfolio?: ConfirmedPortfolio | null;
 }
 
 export interface Session {
@@ -100,6 +101,13 @@ export interface PortfolioResult {
   warnings: string[];
 }
 
+export interface ConfirmedPortfolio {
+  weights: PortfolioWeight[];
+  metrics: PortfolioMetrics | null;
+  note: string | null;
+  confirmed_at: string;
+}
+
 // ─── 고객 API ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -121,6 +129,14 @@ export const api = {
         body: JSON.stringify({ session_id, years }),
       }),
     universe: () => req<{ asset_id: string; ticker: string; name: string; category: string }[]>("/portfolio/universe"),
+    confirm: (session_id: string, body: { weights: { asset_id: string; name: string; category: string; weight_pct: number }[]; note?: string; metrics?: PortfolioMetrics }) =>
+      req<ConfirmedPortfolio>(`/portfolio/sessions/${session_id}/confirm`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    clearConfirmed: (session_id: string) =>
+      fetch(`${BASE}/portfolio/sessions/${session_id}/confirm`, { method: "DELETE" })
+        .then(res => { if (!res.ok && res.status !== 204) throw new Error("확정 해제 실패"); }),
   },
   sessions: {
     list: (params?: { customer_id?: string; status?: string }) => {

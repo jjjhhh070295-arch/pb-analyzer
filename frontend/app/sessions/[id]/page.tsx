@@ -308,7 +308,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         )}
 
         {activeTab === "portfolio" && (
-          <PortfolioTab sessionId={id} confirmed={confirmed} />
+          <PortfolioTab
+            sessionId={id}
+            confirmed={confirmed}
+            initialConfirmedPortfolio={r.confirmed_portfolio}
+            onPortfolioChange={refetch}
+          />
         )}
       </div>
 

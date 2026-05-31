@@ -118,11 +118,66 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
           </dl>
         </div>
 
+        {r.confirmed_portfolio && r.confirmed_portfolio.weights.length > 0 && (
+          <PortfolioSection portfolio={r.confirmed_portfolio} />
+        )}
+
         <p className="mt-8 text-[11px] text-center text-slate-400 leading-relaxed">
           본 자료는 참고용 분석 결과이며, 최종 투자 결정과 책임은 고객에게 있습니다.<br/>
           자세한 사항은 담당 PB에게 문의해주시기 바랍니다.
         </p>
       </main>
+    </div>
+  );
+}
+
+const CATEGORY_COLOR_PUBLIC: Record<string, string> = {
+  "국내주식": "bg-blue-900",
+  "해외주식": "bg-blue-700",
+  "리츠":    "bg-indigo-500",
+  "원자재":  "bg-amber-500",
+  "달러":    "bg-amber-300",
+};
+
+function PortfolioSection({ portfolio }: { portfolio: NonNullable<Session["result"]["confirmed_portfolio"]> }) {
+  return (
+    <div className="card-premium overflow-hidden mt-6">
+      <div className="px-7 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-bold text-navy tracking-tight">추천 포트폴리오</h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">담당 PB가 직접 검토하여 확정한 자산 배분입니다.</p>
+        </div>
+        <span className="badge-confirmed text-[10px] px-2.5 py-0.5 rounded">확정</span>
+      </div>
+
+      <div className="px-7 py-6">
+        <div className="flex h-8 rounded-lg overflow-hidden mb-5 ring-1 ring-slate-200">
+          {portfolio.weights.map(w => (
+            <div key={w.asset_id}
+              className={`${CATEGORY_COLOR_PUBLIC[w.category] ?? "bg-slate-400"}`}
+              style={{ width: `${w.weight_pct}%` }}
+              title={`${w.name}: ${w.weight_pct.toFixed(1)}%`} />
+          ))}
+        </div>
+
+        <ul className="space-y-2.5">
+          {portfolio.weights.map(w => (
+            <li key={w.asset_id} className="flex items-center gap-3 text-sm py-1">
+              <span className={`w-3 h-3 rounded-sm flex-shrink-0 ${CATEGORY_COLOR_PUBLIC[w.category] ?? "bg-slate-400"}`} />
+              <span className="flex-1 text-slate-700">{w.name}</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider">{w.category}</span>
+              <span className="font-semibold text-navy w-16 text-right tabular-nums text-base">{w.weight_pct.toFixed(1)}%</span>
+            </li>
+          ))}
+        </ul>
+
+        {portfolio.note && (
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <p className="text-[11px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">담당 PB 코멘트</p>
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{portfolio.note}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

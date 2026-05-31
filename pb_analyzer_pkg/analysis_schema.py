@@ -303,6 +303,12 @@ class AnalysisResult:
     # 운용 예정 총액(원) - 정합성 검사(B-1)에 필요. 텍스트에서 추출되거나 PB가 입력.
     total_investable: Optional[float] = None
 
+    # PB가 최종 확정한 포트폴리오 (없으면 None). 형태:
+    # { "weights": [{asset_id, name, category, weight, weight_pct}], "metrics": {...},
+    #   "note": "...", "confirmed_at": "ISO 8601" }
+    # 자유로운 dict로 둬서 PB 임의 수정도 그대로 저장. 고객 화면 송출에 사용.
+    confirmed_portfolio: Optional[dict] = None
+
     def to_dict(self) -> dict:
         return {
             "goal_return": self.goal_return.to_dict(),
@@ -316,6 +322,7 @@ class AnalysisResult:
             "optimizer_constraints": self.optimizer_constraints.to_dict(),
             "flags": [f.to_dict() for f in self.flags],
             "total_investable": self.total_investable,
+            "confirmed_portfolio": self.confirmed_portfolio,
         }
 
     @staticmethod
@@ -332,4 +339,5 @@ class AnalysisResult:
             optimizer_constraints=OptimizerConstraints.from_dict(d.get("optimizer_constraints", {})),
             flags=[Flag.from_dict(f) for f in d.get("flags", [])],
             total_investable=d.get("total_investable"),
+            confirmed_portfolio=d.get("confirmed_portfolio"),
         )
