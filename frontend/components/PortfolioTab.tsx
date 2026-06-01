@@ -12,6 +12,32 @@ const CATEGORY_COLOR: Record<string, string> = {
 
 const PLAN_ORDER: PlanKey[] = ["conservative", "balanced", "growth"];
 
+/**
+ * 자산별 기준금리 민감도 (단순화 모델).
+ * 금리 1%p 상승 시 그 자산의 연간 추가 수익률(%p) 추정.
+ * 음수 = 금리 상승 시 손실, 양수 = 금리 상승 시 이익.
+ */
+const RATE_SENSITIVITY: Record<string, number> = {
+  kodex200: -1.2,   // 국내주식
+  spy:      -1.5,
+  qqq:      -2.0,   // 성장주는 듀레이션 ↑ → 금리에 민감
+  vnq:      -3.0,   // 리츠는 채권성격, 금리에 가장 민감
+  gld:      +0.3,   // 금: 약한 양의 민감도 (인플레 헤지)
+  slv:      +0.1,
+  copx:     -0.5,   // 구리: 경기 영향
+  uup:      +2.0,   // 달러: 금리 차이로 강세
+};
+
+function _portfolioRateSensitivity(weights: { asset_id: string; weight_pct: number }[]): number {
+  // 가중평균 민감도 (%p per 1%p rate change)
+  let s = 0;
+  for (const w of weights) {
+    const sens = RATE_SENSITIVITY[w.asset_id] ?? 0;
+    s += (w.weight_pct / 100) * sens;
+  }
+  return s;
+}
+
 // PB 전용 — 주간 추천 ETF (고객 화면 미노출). 운용본부 권고를 임의 반영해 운영.
 const WEEKLY_RECOMMENDED = [
   { name: "KODEX 200 TR",      code: "278530", category: "국내주식", reason: "국내 대형주 코어 노출, 배당 재투자로 장기 복리 효과" },
@@ -343,6 +369,14 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
         )}
       </div>
 
+      {/* 기준금리 시나리오 시뮬레이션 */}
+      {m && (
+        <RateScenarioCard
+          baseReturnPct={m.expected_return_pct}
+          weights={editWeights}
+        />
+      )}
+
       {/* PB 전용 — 주간 추천 ETF */}
       <div className="card-premium p-5">
         <div className="flex items-center justify-between mb-2">
@@ -454,6 +488,111 @@ function PlanCompareCard({ planKey, plan, isSelected, isRecommended, onSelect }:
         </div>
       </div>
     </button>
+  );
+}
+
+function RateScenarioCard({ baseReturnPct, weights }: {
+  baseReturnPct: number;
+  weights: { asset_id: string; name: string; category: string; weight_pct: number }[];
+}) {
+  const [deltaRate, setDeltaRate] = useState(0);   // %p
+  const portSens = _portfolioRateSensitivity(weights);
+  const adjusted = baseReturnPct + portSens * deltaRate;
+  const delta = adjusted - baseReturnPct;
+
+  // 자산별 영향 (상위 3개)
+  const assetImpacts = weights
+    .map(w => ({
+      name: w.name,
+      category: w.category,
+      impact: (w.weight_pct / 100) * (RATE_SENSITIVITY[w.asset_id] ?? 0) * deltaRate,
+    }))
+    .filter(x => Math.abs(x.impact) > 0.01)
+    .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+    .slice(0, 3);
+
+  const tone = delta > 0.05 ? "text-emerald-700" : delta < -0.05 ? "text-red-600" : "text-slate-700";
+  const sign = delta > 0 ? "+" : "";
+
+  return (
+    <div className="card-premium p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+          <span className="w-1 h-4 bg-gold rounded-sm" />
+          📈 기준금리 시나리오 시뮬레이션
+        </p>
+        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">PB 전용 · 단순 추정</span>
+      </div>
+      <p className="text-xs text-slate-500 mb-4">
+        자산별 듀레이션·금리 민감도 기반 단순 모델. 실제 시장 반응과 차이가 있을 수 있습니다.
+      </p>
+
+      {/* 슬라이더 */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">기준금리 변동</label>
+          <span className={`text-lg font-bold tabular-nums ${deltaRate > 0 ? "text-red-600" : deltaRate < 0 ? "text-emerald-700" : "text-slate-500"}`}>
+            {deltaRate > 0 ? "+" : ""}{deltaRate.toFixed(2)} %p
+          </span>
+        </div>
+        <input
+          type="range" min="-3" max="3" step="0.25"
+          value={deltaRate}
+          onChange={e => setDeltaRate(parseFloat(e.target.value))}
+          className="w-full h-2 bg-gradient-to-r from-emerald-200 via-slate-200 to-red-200 rounded-lg appearance-none cursor-pointer accent-navy"
+        />
+        <div className="flex justify-between text-[10px] text-slate-400 mt-1 px-1">
+          <span>↓ -3%p (금리 인하)</span>
+          <span>현재</span>
+          <span>+3%p (금리 인상) ↑</span>
+        </div>
+      </div>
+
+      {/* 결과 */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">기존</p>
+          <p className="text-xl font-bold text-slate-700 tabular-nums">{baseReturnPct.toFixed(1)}%</p>
+        </div>
+        <div className="bg-gold-light/30 rounded-lg p-3 text-center ring-1 ring-gold/30">
+          <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">조정 후</p>
+          <p className={`text-xl font-bold tabular-nums ${tone}`}>{adjusted.toFixed(1)}%</p>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">변동</p>
+          <p className={`text-xl font-bold tabular-nums ${tone}`}>{sign}{delta.toFixed(2)}%p</p>
+        </div>
+      </div>
+
+      <div className="text-[11px] text-slate-500 mb-2">
+        포트폴리오 금리 민감도: <strong className="text-navy tabular-nums">{portSens >= 0 ? "+" : ""}{portSens.toFixed(2)}</strong>
+        <span className="text-slate-400 ml-1">(금리 1%p 변동 시 수익률 변동폭)</span>
+      </div>
+
+      {/* 영향 큰 자산 TOP 3 */}
+      {Math.abs(deltaRate) > 0.01 && assetImpacts.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wider">영향이 큰 자산</p>
+          <ul className="space-y-1">
+            {assetImpacts.map((a, i) => (
+              <li key={i} className="flex items-center justify-between text-xs">
+                <span className="text-slate-700">{a.name}</span>
+                <span className={`font-semibold tabular-nums ${a.impact > 0 ? "text-emerald-700" : "text-red-600"}`}>
+                  {a.impact > 0 ? "+" : ""}{a.impact.toFixed(2)}%p
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Math.abs(deltaRate) > 0.01 && (
+        <button onClick={() => setDeltaRate(0)}
+          className="mt-3 text-xs text-slate-400 hover:text-navy underline">
+          기준값으로 리셋
+        </button>
+      )}
+    </div>
   );
 }
 
