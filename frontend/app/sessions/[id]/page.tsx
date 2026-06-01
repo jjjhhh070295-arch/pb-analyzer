@@ -312,6 +312,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             sessionId={id}
             confirmed={confirmed}
             initialConfirmedPortfolio={r.confirmed_portfolio}
+            initialConfirmedTaxStrategy={r.confirmed_tax_strategy}
             onPortfolioChange={refetch}
           />
         )}

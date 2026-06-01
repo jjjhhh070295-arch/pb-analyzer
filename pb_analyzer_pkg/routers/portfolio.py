@@ -296,6 +296,44 @@ def tax_strategy(session_id: str):
     }
 
 
+class ConfirmTaxStrategyIn(BaseModel):
+    candidates: list[dict]
+    summary: str
+    ranked: list[dict]
+    note: Optional[str] = None    # PB 추가 코멘트(고객 화면 노출)
+
+
+@router.put("/sessions/{session_id}/tax-strategy/confirm")
+def confirm_tax_strategy(session_id: str, body: ConfirmTaxStrategyIn):
+    """PB가 검토한 절세 전략을 확정해 고객 화면에 송출."""
+    repo = get_session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+
+    sess.result.confirmed_tax_strategy = {
+        "candidates": body.candidates,
+        "summary": body.summary,
+        "ranked": body.ranked,
+        "note": body.note,
+        "confirmed_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    repo.update_result(session_id, sess.result)
+    return sess.result.confirmed_tax_strategy
+
+
+@router.delete("/sessions/{session_id}/tax-strategy/confirm", status_code=204)
+def clear_tax_strategy(session_id: str):
+    """확정된 절세 전략을 해제(고객 화면에서 사라짐)."""
+    repo = get_session_repo()
+    sess = repo.get(session_id)
+    if not sess:
+        raise HTTPException(404, "세션을 찾을 수 없습니다.")
+    sess.result.confirmed_tax_strategy = None
+    repo.update_result(session_id, sess.result)
+    return None
+
+
 @router.get("/universe")
 def get_universe():
     """투자 가능한 자산 유니버스 목록."""

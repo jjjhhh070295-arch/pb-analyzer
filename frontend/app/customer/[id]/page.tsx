@@ -122,6 +122,10 @@ export default function CustomerSessionPage({ params }: { params: Promise<{ id: 
           <PortfolioSection portfolio={r.confirmed_portfolio} />
         )}
 
+        {r.confirmed_tax_strategy && r.confirmed_tax_strategy.candidates && (
+          <TaxStrategySection strategy={r.confirmed_tax_strategy} />
+        )}
+
         <p className="mt-8 text-[11px] text-center text-slate-400 leading-relaxed">
           본 자료는 참고용 분석 결과이며, 최종 투자 결정과 책임은 고객에게 있습니다.<br/>
           자세한 사항은 담당 PB에게 문의해주시기 바랍니다.
@@ -186,6 +190,94 @@ function Blank({ text }: { text: string }) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <p className="text-slate-400 text-sm">{text}</p>
+    </div>
+  );
+}
+
+const PRIORITY_LABEL: Record<string, { label: string; cls: string }> = {
+  high:   { label: "1순위 검토", cls: "bg-gold text-white" },
+  medium: { label: "2순위 검토", cls: "bg-blue-100 text-navy" },
+  low:    { label: "참고",       cls: "bg-slate-100 text-slate-600" },
+};
+
+const KRW_FMT = new Intl.NumberFormat("ko-KR");
+
+function TaxStrategySection({ strategy }: { strategy: NonNullable<Session["result"]["confirmed_tax_strategy"]> }) {
+  const cands = strategy.candidates ?? [];
+  const ranked = strategy.ranked ?? [];
+  const rankMap = new Map(ranked.map(r => [r.product_id, r]));
+  const order = { high: 0, medium: 1, low: 2 } as const;
+  const sorted = [...cands].sort((a, b) => {
+    const ap = (rankMap.get(a.product_id)?.priority ?? "low") as keyof typeof order;
+    const bp = (rankMap.get(b.product_id)?.priority ?? "low") as keyof typeof order;
+    return order[ap] - order[bp];
+  });
+
+  return (
+    <div className="card-premium overflow-hidden mt-6">
+      <div className="px-7 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-bold text-navy tracking-tight">추천 절세 플랜</h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">담당 PB가 검토하여 확정한 절세 전략입니다.</p>
+        </div>
+        <span className="badge-confirmed text-[10px] px-2.5 py-0.5 rounded">확정</span>
+      </div>
+
+      <div className="px-7 py-6">
+        {strategy.summary && (
+          <div className="bg-gold-light/40 border-l-4 border-gold rounded px-4 py-3 mb-5 text-sm text-slate-700 leading-relaxed">
+            {strategy.summary}
+          </div>
+        )}
+
+        <ul className="space-y-3">
+          {sorted.map(c => {
+            const rk = rankMap.get(c.product_id);
+            const ps = rk ? PRIORITY_LABEL[rk.priority] : PRIORITY_LABEL.low;
+            if (!c.eligible) return null;
+            return (
+              <li key={c.product_id} className="border border-slate-200 rounded-lg p-4 hover:border-gold transition-colors">
+                <div className="flex items-start justify-between gap-3 mb-1.5 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${ps.cls}`}>{ps.label}</span>
+                    <span className="text-sm font-semibold text-slate-900">{c.name}</span>
+                  </div>
+                  {c.estimated_saving_won != null && (
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider block">예상 절감</span>
+                      <span className="text-sm font-bold text-gold tabular-nums">
+                        {KRW_FMT.format(c.estimated_saving_won)}원/년
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mb-1.5">{c.one_liner}</p>
+                <p className="text-[11px] text-slate-500 mb-2">📐 {c.limit_text}</p>
+                {rk && (
+                  <p className="text-xs text-slate-700">
+                    <span className="text-gold font-semibold">검토 사유 · </span>{rk.reason}
+                  </p>
+                )}
+                {rk?.caveats && (
+                  <p className="text-[11px] text-slate-500 mt-1">⚠ {rk.caveats}</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        {strategy.note && (
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <p className="text-[11px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">담당 PB 코멘트</p>
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{strategy.note}</p>
+          </div>
+        )}
+
+        <p className="mt-5 text-[10px] text-slate-400 leading-relaxed">
+          본 자료는 담당 PB의 검토 결과를 안내하기 위한 자료이며 세무 자문이 아닙니다.
+          실제 가입·매도 전 한도·자격·소득구간을 PB와 함께 다시 확인해 주시기 바랍니다.
+        </p>
+      </div>
     </div>
   );
 }

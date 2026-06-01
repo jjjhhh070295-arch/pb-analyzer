@@ -61,6 +61,7 @@ export interface AnalysisResult {
   flags: Flag[];
   total_investable: number | null;
   confirmed_portfolio?: ConfirmedPortfolio | null;
+  confirmed_tax_strategy?: ConfirmedTaxStrategy | null;
 }
 
 export interface Session {
@@ -132,6 +133,11 @@ export interface TaxStrategyResult {
   ranked: TaxStrategyRanked[];
 }
 
+export interface ConfirmedTaxStrategy extends TaxStrategyResult {
+  note: string | null;
+  confirmed_at: string;
+}
+
 // ─── 고객 API ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -163,6 +169,14 @@ export const api = {
         .then(res => { if (!res.ok && res.status !== 204) throw new Error("확정 해제 실패"); }),
     taxStrategy: (session_id: string) =>
       req<TaxStrategyResult>(`/portfolio/sessions/${session_id}/tax-strategy`, { method: "POST" }),
+    confirmTaxStrategy: (session_id: string, body: TaxStrategyResult & { note?: string }) =>
+      req<ConfirmedTaxStrategy>(`/portfolio/sessions/${session_id}/tax-strategy/confirm`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    clearConfirmedTaxStrategy: (session_id: string) =>
+      fetch(`${BASE}/portfolio/sessions/${session_id}/tax-strategy/confirm`, { method: "DELETE" })
+        .then(res => { if (!res.ok && res.status !== 204) throw new Error("절세 송출 해제 실패"); }),
   },
   sessions: {
     list: (params?: { customer_id?: string; status?: string }) => {

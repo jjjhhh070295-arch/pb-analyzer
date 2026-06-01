@@ -36,12 +36,13 @@ interface Props {
   sessionId: string;
   confirmed: boolean;
   initialConfirmedPortfolio?: ConfirmedPortfolio | null;
+  initialConfirmedTaxStrategy?: TaxStrategyResult | null;
   onPortfolioChange?: () => void;
 }
 
 type EditWeight = PortfolioWeight & { weight_pct: number };
 
-export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPortfolio, onPortfolioChange }: Props) {
+export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPortfolio, initialConfirmedTaxStrategy, onPortfolioChange }: Props) {
   const [result, setResult] = useState<PortfolioResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -57,18 +58,63 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
   const [note, setNote] = useState(initialConfirmedPortfolio?.note ?? "");
   const [isConfirmedView, setIsConfirmedView] = useState(!!initialConfirmedPortfolio);
 
-  // 절세 전략 (포트폴리오 확정 여부와 무관하게 PB 검수 확정 후 자동 호출)
-  const [taxStrategy, setTaxStrategy] = useState<TaxStrategyResult | null>(null);
+  // 절세 전략 — 확정본이 이미 있으면 그걸로 시작, 없으면 분석 자동 호출
+  const [taxStrategy, setTaxStrategy] = useState<TaxStrategyResult | null>(
+    initialConfirmedTaxStrategy ?? null
+  );
   const [taxLoading, setTaxLoading] = useState(false);
+  const [taxConfirmed, setTaxConfirmed] = useState(!!initialConfirmedTaxStrategy);
+  const [taxNote, setTaxNote] = useState(initialConfirmedTaxStrategy && "note" in initialConfirmedTaxStrategy
+    ? ((initialConfirmedTaxStrategy as { note?: string | null }).note ?? "") : "");
+  const [taxSaving, setTaxSaving] = useState(false);
 
   useEffect(() => {
     if (!confirmed) return;
+    if (taxStrategy) return; // 이미 확정본 또는 분석 결과 있음
     setTaxLoading(true);
     api.portfolio.taxStrategy(sessionId)
       .then(setTaxStrategy)
       .catch(() => {/* 절세 전략 실패는 조용히 무시 — 메인 흐름 방해 X */})
       .finally(() => setTaxLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, confirmed]);
+
+  const reanalyzeTax = () => {
+    setTaxLoading(true);
+    api.portfolio.taxStrategy(sessionId)
+      .then(s => { setTaxStrategy(s); setTaxConfirmed(false); })
+      .catch(() => {})
+      .finally(() => setTaxLoading(false));
+  };
+
+  const confirmTax = async () => {
+    if (!taxStrategy) return;
+    setTaxSaving(true);
+    setError("");
+    try {
+      await api.portfolio.confirmTaxStrategy(sessionId, { ...taxStrategy, note: taxNote || undefined });
+      setTaxConfirmed(true);
+      onPortfolioChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "절세 전략 송출 실패");
+    } finally {
+      setTaxSaving(false);
+    }
+  };
+
+  const unconfirmTax = async () => {
+    if (!window.confirm("확정된 절세 전략을 해제합니다. 고객 화면에서도 사라집니다.")) return;
+    setTaxSaving(true);
+    try {
+      await api.portfolio.clearConfirmedTaxStrategy(sessionId);
+      setTaxConfirmed(false);
+      onPortfolioChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "해제 실패");
+    } finally {
+      setTaxSaving(false);
+    }
+  };
 
   const run = async () => {
     setLoading(true);
@@ -324,13 +370,13 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
       <TaxStrategyCard
         loading={taxLoading}
         strategy={taxStrategy}
-        onRefresh={() => {
-          setTaxLoading(true);
-          api.portfolio.taxStrategy(sessionId)
-            .then(setTaxStrategy)
-            .catch(() => {})
-            .finally(() => setTaxLoading(false));
-        }}
+        onRefresh={reanalyzeTax}
+        confirmed={taxConfirmed}
+        saving={taxSaving}
+        note={taxNote}
+        onNoteChange={setTaxNote}
+        onConfirm={confirmTax}
+        onUnconfirm={unconfirmTax}
       />
 
       {/* 액션 버튼 */}
@@ -377,10 +423,16 @@ const PRIORITY_STYLE = {
 
 const KRW = new Intl.NumberFormat("ko-KR");
 
-function TaxStrategyCard({ loading, strategy, onRefresh }: {
+function TaxStrategyCard({ loading, strategy, onRefresh, confirmed, saving, note, onNoteChange, onConfirm, onUnconfirm }: {
   loading: boolean;
   strategy: TaxStrategyResult | null;
   onRefresh: () => void;
+  confirmed: boolean;
+  saving: boolean;
+  note: string;
+  onNoteChange: (v: string) => void;
+  onConfirm: () => void;
+  onUnconfirm: () => void;
 }) {
   if (loading && !strategy) {
     return (
@@ -475,6 +527,35 @@ function TaxStrategyCard({ loading, strategy, onRefresh }: {
         본 분석은 PB 검토를 돕기 위한 자료이며 세무 자문이 아닙니다.
         실제 가입·매도 의사결정 전 한도·자격·소득구간을 반드시 확인하세요.
       </p>
+
+      {/* 고객 송출 — 확정 배너 또는 확정 버튼 */}
+      {confirmed ? (
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">✓ 절세 전략 확정 — 고객 화면 송출 중</p>
+              {note && <p className="text-xs text-amber-800 mt-1">📝 {note}</p>}
+            </div>
+            <button onClick={onUnconfirm} disabled={saving}
+              className="text-xs text-red-600 hover:underline font-medium disabled:opacity-50">
+              {saving ? "처리중…" : "송출 해제"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">PB 코멘트 (고객 화면 노출)</label>
+            <textarea value={note} onChange={e => onNoteChange(e.target.value)} rows={2}
+              placeholder="예: ISA·연금저축 동시 활용을 우선 권고드립니다."
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-900/15 focus:border-blue-900" />
+          </div>
+          <button onClick={onConfirm} disabled={saving}
+            className="btn-gold w-full py-2.5 rounded-lg text-sm shadow-md disabled:opacity-50">
+            {saving ? "송출 중…" : "✓ 이 절세 전략 고객 화면에 송출"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

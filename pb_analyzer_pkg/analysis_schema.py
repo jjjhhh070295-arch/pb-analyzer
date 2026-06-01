@@ -309,6 +309,10 @@ class AnalysisResult:
     # 자유로운 dict로 둬서 PB 임의 수정도 그대로 저장. 고객 화면 송출에 사용.
     confirmed_portfolio: Optional[dict] = None
 
+    # PB가 확정해 고객 화면에 송출한 절세 전략 (없으면 None).
+    # { "candidates": [...], "summary": "...", "ranked": [...], "note": "...", "confirmed_at": "..." }
+    confirmed_tax_strategy: Optional[dict] = None
+
     def to_dict(self) -> dict:
         return {
             "goal_return": self.goal_return.to_dict(),
@@ -323,6 +327,7 @@ class AnalysisResult:
             "flags": [f.to_dict() for f in self.flags],
             "total_investable": self.total_investable,
             "confirmed_portfolio": self.confirmed_portfolio,
+            "confirmed_tax_strategy": self.confirmed_tax_strategy,
         }
 
     @staticmethod
@@ -340,4 +345,5 @@ class AnalysisResult:
             flags=[Flag.from_dict(f) for f in d.get("flags", [])],
             total_investable=d.get("total_investable"),
             confirmed_portfolio=d.get("confirmed_portfolio"),
+            confirmed_tax_strategy=d.get("confirmed_tax_strategy"),
         )
