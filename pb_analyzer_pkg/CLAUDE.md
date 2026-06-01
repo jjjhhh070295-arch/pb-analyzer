@@ -6,67 +6,106 @@
 초고액 자산가(보유자산 30억 이상)를 상대하는 증권사 PB를 돕는 분석 도구.
 PB가 고객 상담 내용을 자유 텍스트로 입력하면, 시스템이 **7요인**으로 자동 분석하고
 **규칙 검증**으로 세무·정합성·안전 플래그를 달아 PB의 판단을 돕는다.
-**최종 투자판단과 책임은 PB에게 있다**(자본시장법상 투자권유·자문 이슈 회피 — 시스템은 분석 보조 도구).
+**최종 투자판단과 책임은 PB에게 있다**(자본시장법상 투자권유·자문 이슈 회피).
 
-전체는 2단계로 구성된다:
-- **1단계(완료):** 고객 텍스트 → 7요인 분석 + 규칙 검증 + 저장/불러오기
-- **2단계(미구현):** 7요인에서 번역된 제약 → 포트폴리오 최적화 엔진
+## 현재 상태: 풀스택 배포 완료
 
-## 현재 상태 (1단계 완료, 백엔드 로직)
-`python demo.py` 로 전체 흐름이 동작한다(가짜 LLM 사용, API 키 불필요):
-고객 등록(동명이인 처리) → 7요인 분석 → 규칙 검증 → 엑셀 저장 → 불러오기 → PB 검수 확정.
+배포 URL:
+- 프론트엔드: **https://pb-analyzer.vercel.app** (Vercel Hobby)
+- 백엔드: **https://pb-analyzer-production.up.railway.app** (Railway Trial)
+- DB: Supabase (`https://sttnajnzeedkiwcqusjl.supabase.co`, Mumbai region)
+- 소스: **https://github.com/jjjhhh070295-arch/pb-analyzer** (monorepo)
+
+자동 배포: `git push`만 하면 Railway·Vercel이 자동 감지·재배포.
+
+## 폴더 구조 (monorepo)
+```
+pb_analyzer/
+├── pb_analyzer_pkg/   ← FastAPI 백엔드 (Railway가 이 폴더를 Root로 인식)
+│   ├── main.py        ← 진입점, CORS 화이트리스트
+│   ├── Procfile       ← Railway start command
+│   ├── routers/       ← customers, sessions, portfolio
+│   ├── analyzer.py, extractors.py, validators.py, ...
+│   ├── supabase_repositories.py  ← Supabase 구현
+│   └── deps.py        ← SUPABASE_URL 있으면 Supabase, 없으면 Excel
+└── frontend/          ← Next.js 프론트 (Vercel이 이 폴더를 Root로 인식)
+    ├── app/           ← /, /customers/new, /sessions/new, /sessions/[id], /customer/[id]
+    ├── components/    ← FactorCard, FlagList, FollowUpPanel, PortfolioTab, EditFactorsModal
+    └── lib/api.ts     ← 백엔드 API 클라이언트
+```
+
+## 구현 완료 기능 요약
+
+### 1단계 — 분석 (백엔드 로직)
+- 7요인 분리 분석(LLM), 13개 규칙 검증, evidence/신뢰도/status 부착
+- 더미 시나리오 4종 키워드 분기 (`routers/sessions.py` `_pick_demo_scenario`):
+  - "법인·잉여·가업승계" → 보수형 4~6%
+  - "부동산·임대·보유세" → 자산 분산 3~5%
+  - "사업 매각·예금·인플레이션" → 헤지 5~7%
+  - 그 외 → 일반 7~9%
+
+### 2단계 — 포트폴리오 최적화 (`optimizer.py`)
+- 리스크 패리티 (`scipy.optimize`)
+- 자산 유니버스 8개 ETF, yfinance 실시간 데이터
+- 지표: 기대수익률, 하방변동성→0~100 점수, 소르티노, 베타
+- risk_level 따라 자산별 비중 상한 조정, excluded_sectors 반영
+
+### 화면 / UI
+- **메인**: 고객 검색·목록, 최근 상담 상태, 새 상담 / 결과 보기 / 🗑(세션) / ✕(고객+상담 cascade)
+- **PB 결과 화면 (`/sessions/[id]`)**:
+  - 탭: 7요인 카드 / 플래그 / 추가질문 / 포트폴리오
+  - 검수중에서만: **✎ 7요인 편집** 버튼 → `EditFactorsModal` (4탭, 신뢰도·근거까지 수정)
+  - 추가질문 패널에 textarea 답변 → **답변 반영 후 재분석** (`PATCH /sessions/{id}/reanalyze`)
+  - 확정 후 **재수정 모드** 버튼 → 검수중으로 되돌리기
+  - 헤더 🗑 → 상담 삭제 모달
+  - 포트폴리오 탭: 최적화 결과 → **✎ 비중 수정** → 각 자산 % 직접 편집 + PB 메모
+  - 골드 **포트폴리오 확정** 버튼 → 고객 화면에 송출
+- **고객 화면 (`/customer/[id]`)**: 확정본만, 신뢰도·플래그·내부 메커니즘 전부 숨김. 확정 포트폴리오 있으면 별도 섹션 자동 노출 (지표는 숨기고 비중·PB 코멘트만).
+
+## 디자인 시스템
+- `frontend/app/globals.css`에 CSS 변수 정의 (`--navy`, `--gold`, `card-premium`, `btn-navy`, `btn-gold`, `bg-header-gradient`, `badge-confirmed`).
+- 네이비(`#1e3a8a`) + 골드(`#d4a14b`) 톤. 모든 헤더는 그라데이션 + 하단 골드 라인.
 
 ## 핵심 설계 결정 (변경 시 주의)
-1. **요인별 분리 분석**: 7요인을 각각 별도 LLM 호출로 추출(정확도↑). 단, 각 프롬프트에
-   전체 원문을 항상 제공해 맥락 유지. (`extractors.py`)
-2. **위험허용도 이중 축**: 의향(willingness)/능력(capacity)을 분리하고 더 보수적인 축을 binding으로 적용.
-3. **신뢰도는 상/중/하** 3단계(숫자 점수 아님). `models.Confidence`.
-4. **status 3종**: explicit(명시)/inferred(추론)/missing(정보없음). missing은 추측 금지 + 추가질문 생성.
-5. **규칙 검증 13개**(A세무·B정합성·C형식·D안전). `validators.py`. on/off는 `rules_config.RULE_TOGGLES`.
-6. **화면 분리**: PB 화면(작업·검수, 전체 노출) / 고객 화면(검수·확정본만 노출). 단방향 게이트.
-7. **저장소·LLM은 추상 인터페이스**: 엑셀→Supabase, mock→실제 API 교체를 쉽게.
-8. **동명이인**: 고유ID(C0001…)가 진짜 식별자, 이름+생년월일은 표시·구분용. 상담은 customer_id로 묶임.
+1. **요인별 분리 분석**: 각 요인 전용 프롬프트, 단 전체 원문 항상 제공. (`extractors.py`)
+2. **위험허용도 이중 축**: willingness/capacity 분리, 더 보수적인 축이 binding.
+3. **신뢰도는 상/중/하** 3단계 문자열. `models.Confidence`.
+4. **status 3종**: explicit / inferred / missing.
+5. **규칙 검증 13개** (`validators.py`, on/off는 `rules_config.RULE_TOGGLES`).
+6. **PB ↔ 고객 화면 단방향 게이트**: 확정된 세션만 고객 화면 표시.
+7. **저장소·LLM 추상 인터페이스**: `SUPABASE_URL` 환경변수로 Excel↔Supabase 자동 전환, `ANTHROPIC_API_KEY`로 mock↔실제 LLM 자동 전환.
+8. **동명이인**: 고유 ID `C0001…`이 진짜 식별자. 상담은 `customer_id`로 묶임.
+9. **`AnalysisResult.confirmed_portfolio`**: PB 수정 후 확정한 포트폴리오를 자유 dict로 저장. 고객 화면 송출 대상.
 
-## 실제 Claude API 연동 방법
-```python
-from llm_client import AnthropicLLMClient
-llm = AnthropicLLMClient(api_key="sk-...")   # 또는 환경변수 ANTHROPIC_API_KEY
-# 이후 analyze(text, llm) 그대로 사용
-```
-모델 문자열은 `llm_client.AnthropicLLMClient`의 기본값(`claude-opus-4-7`) 또는 인자로 지정.
+## 알아둬야 할 트랩 / 결정 사항
+- **Supabase 키 시스템**: 새 `sb_secret_*` 형식이 아니라 **레거시 JWT(`eyJ...`)** 사용 중. 라이브러리(`supabase>=2.9`)가 새 형식을 인식 못 함.
+- **`httpx` 호환**: `supabase 2.3` + `httpx 0.28` 조합은 `proxy` 인자 에러. `supabase>=2.9`로 핀 (requirements.txt).
+- **Python**: 로컬 `.venv`는 Python 3.14 (uv 기본), Railway는 nixpacks가 Python 3.13 자동 선택.
+- **CORS**: `main.py`에 Vercel 도메인 + `localhost:3000/3002`만 허용. PR preview는 정규식으로 매칭.
+- **mock LLM**: ANTHROPIC_API_KEY 없으면 `_pick_demo_scenario`로 키워드 분기된 더미 응답 반환. 키 추가 시 자동으로 진짜 분석으로 전환 (코드 변경 없음).
 
-## 다음 작업 (우선순위)
-### A. 2단계 포트폴리오 최적화 엔진 (핵심 미구현)
-- 입력: `AnalysisResult.optimizer_constraints`
-  (max_horizon_years, min_cash_reserve, target_return_min/max, risk_level, excluded_sectors, provisional)
-- 자산 유니버스: 국내주식·해외주식·ETF·리츠·원자재(금·은·구리)·달러
-- 가격 데이터: `yfinance`(일별 종가로 시작, 실시간은 후순위)
-- 출력 지표: 기대수익률, **소르티노 지수**, 시장지수 대비 **베타**
-- **미확정 설계 결정 2가지 (구현 전 사용자와 합의 필요):**
-  1. 최적화 방법론: 단순 평균-분산(MVO)은 입력오차에 쏠림 심함 →
-     리스크패리티 / Black-Litterman / 제약강화 MVO 중 선택.
-  2. 시각화 위험축 정의: "기대수익률 vs 위험도" 화면에서 위험축을
-     소르티노(높을수록 좋음)로 쓰면 직관과 반대 → 위험축은 하방변동성/MDD 계열을
-     0~100 변환 권장, 소르티노는 별도 "위험조정 성과 점수"로 표시.
-- `excluded_sectors`(예: tobacco/gambling)를 종목 배제 규칙으로 매핑하는 분류표 필요.
+## 환경변수 (Railway·Vercel·로컬 .env)
+- **백엔드 (Railway)**:
+  - `SUPABASE_URL` = `https://sttnajnzeedkiwcqusjl.supabase.co`
+  - `SUPABASE_SERVICE_KEY` = (Supabase 레거시 JWT)
+  - `ANTHROPIC_API_KEY` = (아직 미설정 — 충전 후 추가 예정)
+- **프론트 (Vercel)**:
+  - `NEXT_PUBLIC_API_URL` = `https://pb-analyzer-production.up.railway.app/api`
 
-### B. 웹 UI (Next.js + TailwindCSS, 추천 스택)
-- PB 화면: 7요인 카드 + 인라인 표시(신뢰도·정보없음·🔎규칙) + 검토 탭(심각도순 🔴🟡⚪) + 추가질문 패널
-- 고객 화면: 확정본만, 내부 메커니즘(신뢰도·이중축) 숨김
-- D-2 게이트: PB→고객 전환 시 미해결 빨강 플래그 있으면 경고
+## 등록된 데모 고객 (Supabase customers 테이블)
+| ID | 이름 | 시나리오 키워드 |
+|----|------|-----------------|
+| C0001 | 테스트고객 | 기본 |
+| C0002 | 강민호 | 법인·가업승계 |
+| C0003 | 이정숙 | 부동산 편중 |
+| C0004 | 최영진 | 사업 매각·현금 |
+| C0005 | 홍길동 | 일반 |
 
-### C. 저장소 Supabase 교체 (선택)
-- `CustomerRepository` / `SessionRepository` 추상 클래스를 Supabase 구현으로 갈아끼우면 됨.
-- 테이블: customers, sessions(+ audit_log 신설 권장).
+각 시나리오에 맞는 더미 상담 텍스트는 PB가 직접 복사·붙여넣어 분석 실행.
 
-## 주의사항
-- **세법 수치는 `rules_config.py`에만** 둔다(금융소득종합과세 2천만원 등). 법 개정 시 여기만 수정.
-- 세무 규칙 중 A-2/A-3/A-4는 "확정"이 아니라 "PB 검토 필요" 플래그로만 작동(오판 방지).
-- 민감정보(D-1)는 주민번호·연락처·계좌번호 패턴 탐지. 과탐 방지를 위해 구체적 패턴 우선.
-- 분석 결과는 세션 엑셀의 `result_json` 칸에 전체 저장되고, 펼친 칸은 검색·요약용.
-
-## 빠른 검증
-```bash
-pip install openpyxl
-python demo.py          # 전체 흐름
-```
+## 다음 후보 작업
+- Anthropic API 키 충전 → Railway에 `ANTHROPIC_API_KEY` 추가하면 즉시 실제 분석 작동
+- 인증 (비밀번호 게이트 또는 Supabase Auth)
+- 상담 이력(같은 고객의 과거 세션) 목록 화면
+- 포트폴리오 백테스트 차트
+- 알림(PB → 고객 메일 발송 등)
