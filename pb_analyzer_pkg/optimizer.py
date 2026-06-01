@@ -159,6 +159,16 @@ def _beta(portfolio_returns: np.ndarray, market_returns: np.ndarray) -> float:
     return float(np.cov(p, m, ddof=1)[0, 1] / var_m) if var_m > 1e-10 else 1.0
 
 
+def _max_drawdown(returns: np.ndarray) -> float:
+    """최대 낙폭(MDD). peak-to-trough 최대 하락폭. 음수 반환 (-0.15 = -15%)."""
+    if len(returns) < 2:
+        return 0.0
+    cumulative = np.cumprod(1 + returns)
+    peak = np.maximum.accumulate(cumulative)
+    dd = (cumulative - peak) / peak
+    return float(dd.min())
+
+
 # ---------------------------------------------------------------------------
 # 비중 상한: risk_level 반영
 # ---------------------------------------------------------------------------
@@ -205,7 +215,8 @@ class OptimizationResult:
     downside_risk_score: float          # 0~100 위험 스케일
     sortino_ratio: float
     beta: float
-    provisional: bool                   # 신뢰도 낮으면 True
+    max_drawdown: float = 0.0           # 음수 (예: -0.18 = -18%)
+    provisional: bool = False
     warnings: list[str] = field(default_factory=list)
     asset_names: dict[str, str] = field(default_factory=dict)
 
@@ -268,6 +279,7 @@ def optimize(
 
     market_returns = returns_map.get(MARKET_TICKER, np.zeros(len(port_returns)))
     beta = _beta(port_returns, market_returns)
+    mdd = _max_drawdown(port_returns)
 
     # 7. 목표수익률 대비 경고
     if target_return_min is not None and exp_ret < target_return_min:
@@ -285,7 +297,47 @@ def optimize(
         downside_risk_score=dv_score,
         sortino_ratio=sortino,
         beta=beta,
+        max_drawdown=mdd,
         provisional=provisional,
         warnings=warnings,
         asset_names={aid: ASSETS[aid]["name"] for aid in valid_ids},
     )
+
+
+# ---------------------------------------------------------------------------
+# 3안 동시 산출 (안정형 / 균형형 / 성장형)
+# ---------------------------------------------------------------------------
+
+PLAN_DEFS = [
+    ("conservative", "낮음", "안정형", "원금 보존 우선. 채권·달러·금 등 안전자산 비중을 확대."),
+    ("balanced",     "중립", "균형형", "리스크 패리티 표준. 자산별 위험 기여도를 균등하게 배분."),
+    ("growth",       "높음", "성장형", "기대수익 우선. 국내·해외 주식 비중을 확대."),
+]
+
+
+def optimize_plans(
+    base_risk_level: Optional[str] = None,
+    excluded_sectors: Optional[list[str]] = None,
+    target_return_min: Optional[float] = None,
+    target_return_max: Optional[float] = None,
+    provisional: bool = False,
+    years: int = 3,
+) -> dict:
+    """안정·균형·성장 세 가지 안을 동시에 산출.
+    base_risk_level: 고객의 위험 성향. 일치하는 안에 'recommended' 표시."""
+    plans: dict[str, dict] = {}
+    for key, risk, name, desc in PLAN_DEFS:
+        r = optimize(
+            risk_level=risk,
+            excluded_sectors=excluded_sectors,
+            target_return_min=target_return_min,
+            target_return_max=target_return_max,
+            provisional=provisional,
+            years=years,
+        )
+        plans[key] = {"result": r, "name": name, "description": desc}
+
+    recommended = {"낮음": "conservative", "중립": "balanced", "높음": "growth"}.get(
+        base_risk_level or "", "balanced"
+    )
+    return {"plans": plans, "recommended": recommended}

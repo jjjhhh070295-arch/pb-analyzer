@@ -93,8 +93,27 @@ export interface PortfolioMetrics {
   downside_risk_score: number;   // 0~100
   sortino_ratio: number;
   beta: number;
+  max_drawdown: number;          // 음수 (-0.18)
+  max_drawdown_pct: number;      // -18.0
 }
 
+export type PlanKey = "conservative" | "balanced" | "growth";
+
+export interface PortfolioPlan {
+  name: string;
+  description: string;
+  weights: PortfolioWeight[];
+  metrics: PortfolioMetrics;
+}
+
+export interface PortfolioPlansResult {
+  plans: Record<PlanKey, PortfolioPlan>;
+  recommended: PlanKey;
+  provisional: boolean;
+  warnings: string[];
+}
+
+// 레거시 단일 결과 (확정 portfolio가 사용)
 export interface PortfolioResult {
   weights: PortfolioWeight[];
   metrics: PortfolioMetrics;
@@ -154,7 +173,7 @@ export const api = {
   },
   portfolio: {
     optimize: (session_id: string, years = 3) =>
-      req<PortfolioResult>("/portfolio/optimize", {
+      req<PortfolioPlansResult>("/portfolio/optimize", {
         method: "POST",
         body: JSON.stringify({ session_id, years }),
       }),

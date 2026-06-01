@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from deps import get_session_repo, get_customer_repo
-from optimizer import optimize, ASSETS, OptimizationResult
+from optimizer import optimize, optimize_plans, ASSETS, OptimizationResult
 from tax_products import build_candidates, candidates_to_prompt_block
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
@@ -34,9 +34,11 @@ def _result_to_dict(r: OptimizationResult) -> dict:
             "expected_return_pct": round(r.expected_return * 100, 2),
             "downside_volatility": round(r.downside_volatility, 4),
             "downside_volatility_pct": round(r.downside_volatility * 100, 2),
-            "downside_risk_score": round(r.downside_risk_score, 1),   # 0~100
+            "downside_risk_score": round(r.downside_risk_score, 1),
             "sortino_ratio": round(r.sortino_ratio, 3),
             "beta": round(r.beta, 3),
+            "max_drawdown": round(r.max_drawdown, 4),
+            "max_drawdown_pct": round(r.max_drawdown * 100, 2),    # 음수
         },
         "provisional": r.provisional,
         "warnings": r.warnings,
@@ -45,7 +47,7 @@ def _result_to_dict(r: OptimizationResult) -> dict:
 
 @router.post("/optimize")
 def run_optimize(body: OptimizeRequest):
-    """확정 세션의 7요인 제약을 바탕으로 리스크 패리티 포트폴리오를 최적화합니다."""
+    """안정·균형·성장 3가지 안을 동시에 산출. 고객 risk_level과 일치하는 안이 recommended."""
     repo = get_session_repo()
     session = repo.get(body.session_id)
     if not session:
@@ -55,8 +57,8 @@ def run_optimize(body: OptimizeRequest):
 
     oc = session.result.optimizer_constraints
     try:
-        result = optimize(
-            risk_level=oc.risk_level,
+        plans_res = optimize_plans(
+            base_risk_level=oc.risk_level,
             excluded_sectors=oc.excluded_sectors,
             target_return_min=oc.target_return_min,
             target_return_max=oc.target_return_max,
@@ -66,7 +68,28 @@ def run_optimize(body: OptimizeRequest):
     except RuntimeError as e:
         raise HTTPException(503, str(e))
 
-    return _result_to_dict(result)
+    plans_out = {}
+    aggregate_warnings: list[str] = []
+    any_provisional = False
+    for key, p in plans_res["plans"].items():
+        d = _result_to_dict(p["result"])
+        plans_out[key] = {
+            "name": p["name"],
+            "description": p["description"],
+            "weights": d["weights"],
+            "metrics": d["metrics"],
+        }
+        any_provisional = any_provisional or d["provisional"]
+        for w in d["warnings"]:
+            if w not in aggregate_warnings:
+                aggregate_warnings.append(w)
+
+    return {
+        "plans": plans_out,
+        "recommended": plans_res["recommended"],
+        "provisional": any_provisional,
+        "warnings": aggregate_warnings,
+    }
 
 
 class PortfolioWeightIn(BaseModel):
