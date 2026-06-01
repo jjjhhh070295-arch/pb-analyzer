@@ -10,6 +10,28 @@ const CATEGORY_COLOR: Record<string, string> = {
   "달러":    "bg-amber-300",
 };
 
+// PB 전용 — 주간 추천 ETF (고객 화면 미노출). 운용본부 권고를 임의 반영해 운영.
+const WEEKLY_RECOMMENDED = [
+  {
+    name: "KODEX 200 TR",
+    code: "278530",
+    category: "국내주식",
+    reason: "국내 대형주 코어 노출, 배당 재투자로 장기 복리 효과",
+  },
+  {
+    name: "KODEX 미국S&P500",
+    code: "379800",
+    category: "해외주식",
+    reason: "글로벌 대형주 분산, 환노출형으로 달러 자산 효과 동반",
+  },
+  {
+    name: "KODEX 골드선물(H)",
+    code: "132030",
+    category: "원자재",
+    reason: "환헤지형 금, 인플레이션·지정학 리스크 헤지 수단",
+  },
+];
+
 interface Props {
   sessionId: string;
   confirmed: boolean;
@@ -254,6 +276,35 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
             </div>
           </div>
         )}
+      </div>
+
+      {/* PB 전용 — 주간 추천 ETF */}
+      <div className="card-premium p-5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <span className="w-1 h-4 bg-gold rounded-sm" />
+            📌 주간 추천 ETF
+          </p>
+          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">
+            PB 전용 · 고객 미노출
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">이번 주 운용본부 권고. 고객 상황에 맞춰 검토 후 위 비중에 반영하세요.</p>
+        <ul className="space-y-2">
+          {WEEKLY_RECOMMENDED.map(item => (
+            <li key={item.code}
+              className="border border-slate-200 rounded-lg px-4 py-3 hover:border-gold transition-colors">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="text-sm font-semibold text-slate-900">{item.name}</span>
+                <span className="text-[10px] font-mono text-slate-400 tracking-wider">{item.code}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium ${CATEGORY_COLOR[item.category] ?? "bg-slate-400"} text-white`}>
+                  {item.category}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">{item.reason}</p>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* 액션 버튼 */}
