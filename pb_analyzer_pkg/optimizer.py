@@ -94,12 +94,8 @@ def _align_returns(returns_map: dict[str, np.ndarray]) -> tuple[list[str], np.nd
 # ---------------------------------------------------------------------------
 
 def _risk_parity_weights(cov: np.ndarray, bounds: list[tuple[float, float]]) -> np.ndarray:
-    """
-    각 자산의 위험 기여도가 동등해지도록 비중 결정.
-    목적함수: Σ(RC_i/총위험 - 1/n)² 최소화
-    """
+    """위험 기여도 균등화 (균형형). Σ(RC_i/총위험 - 1/n)² 최소화."""
     from scipy.optimize import minimize
-
     n = len(cov)
 
     def risk_contributions(w: np.ndarray) -> np.ndarray:
@@ -119,7 +115,50 @@ def _risk_parity_weights(cov: np.ndarray, bounds: list[tuple[float, float]]) -> 
                       bounds=bounds, constraints=constraints,
                       options={"maxiter": 1000, "ftol": 1e-9})
     if not result.success:
-        # 수렴 실패 시 균등 비중 반환
+        return w0
+    w = np.maximum(result.x, 0)
+    return w / w.sum()
+
+
+def _min_variance_weights(cov: np.ndarray, bounds: list[tuple[float, float]]) -> np.ndarray:
+    """분산 최소화 (안정형). 변동성 작은 자산으로 자연히 쏠림."""
+    from scipy.optimize import minimize
+    n = len(cov)
+    w0 = np.ones(n) / n
+
+    def obj(w: np.ndarray) -> float:
+        return float(w @ cov @ w)
+
+    result = minimize(obj, w0, method="SLSQP",
+                      bounds=bounds,
+                      constraints=[{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}],
+                      options={"maxiter": 1000, "ftol": 1e-9})
+    if not result.success:
+        return w0
+    w = np.maximum(result.x, 0)
+    return w / w.sum()
+
+
+def _max_sharpe_weights(ret_matrix: np.ndarray, cov: np.ndarray,
+                        bounds: list[tuple[float, float]], rf: float = 0.035) -> np.ndarray:
+    """Sharpe 비율 최대화 (성장형). 수익률 좋은 자산으로 쏠림."""
+    from scipy.optimize import minimize
+    n = len(cov)
+    w0 = np.ones(n) / n
+    expected = np.mean(ret_matrix, axis=0) * 252   # 연환산 기대수익률
+
+    def obj(w: np.ndarray) -> float:
+        port_ret = float(w @ expected)
+        port_vol = float(np.sqrt(w @ cov @ w * 252))
+        if port_vol < 1e-8:
+            return 1e6
+        return -((port_ret - rf) / port_vol)
+
+    result = minimize(obj, w0, method="SLSQP",
+                      bounds=bounds,
+                      constraints=[{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}],
+                      options={"maxiter": 1000, "ftol": 1e-9})
+    if not result.success:
         return w0
     w = np.maximum(result.x, 0)
     return w / w.sum()
@@ -185,10 +224,13 @@ def _bounds_for_risk_level(asset_ids: list[str], risk_level: Optional[str]) -> l
     lo = 0.02   # 최소 비중 2%
 
     if risk_level == "낮음":
-        equity_hi, safe_hi, other_hi = 0.20, 0.40, 0.30
+        # 안정형: 주식 합산 최대 ~30% 수준이 되도록 자산별 상한 좁힘
+        equity_hi, safe_hi, other_hi = 0.12, 0.45, 0.35
     elif risk_level == "높음":
-        equity_hi, safe_hi, other_hi = 0.45, 0.25, 0.35
-    else:  # 중립 또는 None
+        # 성장형: 주식 자산이 크게 잡힐 수 있도록 상한 확대
+        equity_hi, safe_hi, other_hi = 0.55, 0.18, 0.35
+    else:
+        # 균형형
         equity_hi, safe_hi, other_hi = 0.35, 0.35, 0.30
 
     result = []
@@ -228,10 +270,15 @@ def optimize(
     target_return_max: Optional[float] = None,
     provisional: bool = False,
     years: int = 3,
+    method: str = "risk_parity",   # "risk_parity" | "min_variance" | "max_sharpe"
 ) -> OptimizationResult:
     """
-    리스크 패리티 포트폴리오 최적화.
+    포트폴리오 최적화.
 
+    method:
+      - "risk_parity"  : 위험 기여도 균등화 (균형형)
+      - "min_variance" : 분산 최소화 (안정형, 변동성 작은 자산으로 쏠림)
+      - "max_sharpe"   : Sharpe 비율 최대화 (성장형, 수익률 좋은 자산으로 쏠림)
     risk_level: "높음"|"중립"|"낮음" — 비중 상한 조정
     excluded_sectors: ["tobacco", ...] — 해당 자산 제외
     """
@@ -263,10 +310,15 @@ def optimize(
     valid_tickers = [ASSETS[aid]["ticker"] for aid in valid_ids]
     _, ret_matrix = _align_returns({t: returns_map[t] for t in valid_tickers})
 
-    # 4. 공분산 행렬 + 리스크 패리티
+    # 4. 공분산 행렬 + 알고리즘 선택
     cov = np.cov(ret_matrix.T, ddof=1)
     bounds = _bounds_for_risk_level(valid_ids, risk_level)
-    weights = _risk_parity_weights(cov, bounds)
+    if method == "min_variance":
+        weights = _min_variance_weights(cov, bounds)
+    elif method == "max_sharpe":
+        weights = _max_sharpe_weights(ret_matrix, cov, bounds)
+    else:
+        weights = _risk_parity_weights(cov, bounds)
 
     # 5. 포트폴리오 수익률 시계열
     port_returns = ret_matrix @ weights
@@ -309,9 +361,12 @@ def optimize(
 # ---------------------------------------------------------------------------
 
 PLAN_DEFS = [
-    ("conservative", "낮음", "안정형", "원금 보존 우선. 채권·달러·금 등 안전자산 비중을 확대."),
-    ("balanced",     "중립", "균형형", "리스크 패리티 표준. 자산별 위험 기여도를 균등하게 배분."),
-    ("growth",       "높음", "성장형", "기대수익 우선. 국내·해외 주식 비중을 확대."),
+    ("conservative", "낮음", "min_variance", "안정형",
+     "분산 최소화 — 변동성이 낮은 안전자산으로 자연 편중."),
+    ("balanced",     "중립", "risk_parity", "균형형",
+     "리스크 패리티 — 자산별 위험 기여도를 균등하게 배분."),
+    ("growth",       "높음", "max_sharpe", "성장형",
+     "샤프 비율 최대화 — 위험 대비 기대수익이 높은 자산 편중."),
 ]
 
 
@@ -323,10 +378,10 @@ def optimize_plans(
     provisional: bool = False,
     years: int = 3,
 ) -> dict:
-    """안정·균형·성장 세 가지 안을 동시에 산출.
+    """안정·균형·성장 세 가지 안을 서로 다른 알고리즘으로 산출.
     base_risk_level: 고객의 위험 성향. 일치하는 안에 'recommended' 표시."""
     plans: dict[str, dict] = {}
-    for key, risk, name, desc in PLAN_DEFS:
+    for key, risk, method, name, desc in PLAN_DEFS:
         r = optimize(
             risk_level=risk,
             excluded_sectors=excluded_sectors,
@@ -334,6 +389,7 @@ def optimize_plans(
             target_return_max=target_return_max,
             provisional=provisional,
             years=years,
+            method=method,
         )
         plans[key] = {"result": r, "name": name, "description": desc}
 
