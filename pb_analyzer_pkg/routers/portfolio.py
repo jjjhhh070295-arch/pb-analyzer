@@ -8,6 +8,23 @@ from pydantic import BaseModel
 from deps import get_session_repo, get_customer_repo
 from optimizer import optimize, optimize_plans, ASSETS, OptimizationResult
 from tax_products import build_candidates, candidates_to_prompt_block
+import rules_config as cfg
+
+
+def _apply_after_tax(metrics: Optional[dict], annual_financial_income: Optional[float]) -> Optional[dict]:
+    """기대수익률에 세후 수익률을 같이 채워 반환.
+    종합과세 대상이면 한계세율 24% 가정, 아니면 분리과세 15.4%."""
+    if not metrics or "expected_return" not in metrics:
+        return metrics
+    income = annual_financial_income or 0
+    rate = 0.24 if income > cfg.FINANCIAL_INCOME_THRESHOLD else 0.154
+    pre = float(metrics["expected_return"])
+    after = pre * (1 - rate)
+    new_m = dict(metrics)
+    new_m["after_tax_return"] = round(after, 4)
+    new_m["after_tax_return_pct"] = round(after * 100, 2)
+    new_m["tax_rate_applied"] = rate
+    return new_m
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -126,7 +143,7 @@ def confirm_portfolio(session_id: str, body: ConfirmPortfolioIn):
     sess.result.confirmed_portfolio = {
         "weights": weights,
         "note": body.note,
-        "metrics": body.metrics,
+        "metrics": _apply_after_tax(body.metrics, sess.result.tax.annual_financial_income),
         "confirmed_at": datetime.now().isoformat(timespec="seconds"),
     }
     repo.update_result(session_id, sess.result)

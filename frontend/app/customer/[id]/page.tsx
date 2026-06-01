@@ -144,6 +144,22 @@ const CATEGORY_COLOR_PUBLIC: Record<string, string> = {
 };
 
 function PortfolioSection({ portfolio }: { portfolio: NonNullable<Session["result"]["confirmed_portfolio"]> }) {
+  const m = portfolio.metrics as (Record<string, number> | null | undefined);
+  const expPct = m && typeof m["expected_return_pct"] === "number" ? m["expected_return_pct"] : null;
+  const afterPct = m && typeof m["after_tax_return_pct"] === "number" ? m["after_tax_return_pct"] : null;
+  const riskScore = m && typeof m["downside_risk_score"] === "number" ? m["downside_risk_score"] : null;
+  const taxRate = m && typeof m["tax_rate_applied"] === "number" ? m["tax_rate_applied"] : null;
+
+  const riskTone = riskScore == null ? "text-slate-500"
+    : riskScore < 33 ? "text-emerald-700"
+    : riskScore < 66 ? "text-amber-700"
+    : "text-red-700";
+
+  const riskLabel = riskScore == null ? "—"
+    : riskScore < 33 ? "안정"
+    : riskScore < 66 ? "보통"
+    : "공격";
+
   return (
     <div className="card-premium overflow-hidden mt-6">
       <div className="px-7 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -155,6 +171,35 @@ function PortfolioSection({ portfolio }: { portfolio: NonNullable<Session["resul
       </div>
 
       <div className="px-7 py-6">
+        {/* 핵심 지표 3개 */}
+        {(expPct != null || afterPct != null || riskScore != null) && (
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="text-center bg-slate-50 rounded-lg py-4">
+              <p className="text-[11px] text-slate-500 mb-1 uppercase tracking-wider">기대수익률</p>
+              <p className="text-2xl font-bold text-navy tabular-nums">
+                {expPct != null ? `${expPct.toFixed(1)}%` : "—"}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">연환산</p>
+            </div>
+            <div className="text-center bg-gold-light/30 rounded-lg py-4 ring-1 ring-gold/30">
+              <p className="text-[11px] text-slate-500 mb-1 uppercase tracking-wider">세후 수익률</p>
+              <p className="text-2xl font-bold text-gold tabular-nums">
+                {afterPct != null ? `${afterPct.toFixed(1)}%` : "—"}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {taxRate != null ? `세율 ${(taxRate * 100).toFixed(1)}% 적용` : "세금 차감"}
+              </p>
+            </div>
+            <div className="text-center bg-slate-50 rounded-lg py-4">
+              <p className="text-[11px] text-slate-500 mb-1 uppercase tracking-wider">위험지수</p>
+              <p className={`text-2xl font-bold tabular-nums ${riskTone}`}>
+                {riskScore != null ? `${riskScore.toFixed(0)}` : "—"}<span className="text-base text-slate-400">/100</span>
+              </p>
+              <p className={`text-[11px] mt-0.5 ${riskTone}`}>{riskLabel}</p>
+            </div>
+          </div>
+        )}
+
         <div className="flex h-8 rounded-lg overflow-hidden mb-5 ring-1 ring-slate-200">
           {portfolio.weights.map(w => (
             <div key={w.asset_id}

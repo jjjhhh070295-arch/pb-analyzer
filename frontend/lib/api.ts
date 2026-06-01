@@ -95,6 +95,10 @@ export interface PortfolioMetrics {
   beta: number;
   max_drawdown: number;          // 음수 (-0.18)
   max_drawdown_pct: number;      // -18.0
+  // 세후 수익률 — 확정 시 백엔드가 세금 상황 보고 자동 계산
+  after_tax_return?: number;
+  after_tax_return_pct?: number;
+  tax_rate_applied?: number;     // 0.154 또는 0.24
 }
 
 export type PlanKey = "conservative" | "balanced" | "growth";
