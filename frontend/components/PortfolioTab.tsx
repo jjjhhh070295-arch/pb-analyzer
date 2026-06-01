@@ -13,26 +13,48 @@ const CATEGORY_COLOR: Record<string, string> = {
 const PLAN_ORDER: PlanKey[] = ["conservative", "balanced", "growth"];
 
 /**
- * 자산별 기준금리 민감도 (단순화 모델).
- * 금리 1%p 상승 시 그 자산의 연간 추가 수익률(%p) 추정.
- * 음수 = 금리 상승 시 손실, 양수 = 금리 상승 시 이익.
+ * 거시 변수별 자산 민감도 (단순화 모델).
+ * 각 변수 1단위 변동 시 그 자산의 연간 수익률 변동(%p) 추정.
  */
-const RATE_SENSITIVITY: Record<string, number> = {
-  kodex200: -1.2,   // 국내주식
-  spy:      -1.5,
-  qqq:      -2.0,   // 성장주는 듀레이션 ↑ → 금리에 민감
-  vnq:      -3.0,   // 리츠는 채권성격, 금리에 가장 민감
-  gld:      +0.3,   // 금: 약한 양의 민감도 (인플레 헤지)
-  slv:      +0.1,
-  copx:     -0.5,   // 구리: 경기 영향
-  uup:      +2.0,   // 달러: 금리 차이로 강세
+type MacroFactor = "rate" | "fx" | "inflation" | "vix";
+
+const SENSITIVITY: Record<MacroFactor, Record<string, number>> = {
+  // 기준금리 1%p 상승 시 (음수 = 손실)
+  rate: {
+    kodex200: -1.2, spy: -1.5, qqq: -2.0, vnq: -3.0,
+    gld: +0.3, slv: +0.1, copx: -0.5, uup: +2.0,
+  },
+  // 원/달러 1% 상승(원화 약세) 시 — 해외자산은 환차익
+  fx: {
+    kodex200: 0.0, spy: +0.7, qqq: +0.7, vnq: +0.7,
+    gld: +0.7, slv: +0.7, copx: +0.7, uup: +0.8,
+  },
+  // 인플레이션 1%p 상승 시 — 실물·금에 우호적, 주식·달러 불리
+  inflation: {
+    kodex200: -0.5, spy: -0.7, qqq: -0.9, vnq: +0.5,
+    gld: +1.5, slv: +1.0, copx: +0.8, uup: -0.3,
+  },
+  // VIX 1포인트 상승 시 — 위험자산↓, 안전자산↑
+  vix: {
+    kodex200: -0.3, spy: -0.4, qqq: -0.6, vnq: -0.4,
+    gld: +0.3, slv: +0.1, copx: -0.5, uup: +0.4,
+  },
 };
 
-function _portfolioRateSensitivity(weights: { asset_id: string; weight_pct: number }[]): number {
-  // 가중평균 민감도 (%p per 1%p rate change)
+const FACTOR_META: Record<MacroFactor, {
+  label: string; unit: string; min: number; max: number; step: number;
+  emoji: string; low: string; high: string;
+}> = {
+  rate:      { label: "기준금리",    unit: "%p", min: -3,  max: 3,  step: 0.25, emoji: "🏦", low: "↓ 인하",    high: "인상 ↑" },
+  fx:        { label: "원/달러",     unit: "%",  min: -10, max: 10, step: 1,    emoji: "💱", low: "↓ 원화강세", high: "원화약세 ↑" },
+  inflation: { label: "인플레이션",  unit: "%p", min: -2,  max: 5,  step: 0.25, emoji: "🔥", low: "↓ 디플레",   high: "인플레 ↑" },
+  vix:       { label: "VIX",        unit: "pt", min: -10, max: 30, step: 1,    emoji: "⚡", low: "↓ 안정",    high: "공포 ↑" },
+};
+
+function _portfolioSensitivity(factor: MacroFactor, weights: { asset_id: string; weight_pct: number }[]): number {
   let s = 0;
   for (const w of weights) {
-    const sens = RATE_SENSITIVITY[w.asset_id] ?? 0;
+    const sens = SENSITIVITY[factor][w.asset_id] ?? 0;
     s += (w.weight_pct / 100) * sens;
   }
   return s;
@@ -495,60 +517,87 @@ function RateScenarioCard({ baseReturnPct, weights }: {
   baseReturnPct: number;
   weights: { asset_id: string; name: string; category: string; weight_pct: number }[];
 }) {
-  const [deltaRate, setDeltaRate] = useState(0);   // %p
-  const portSens = _portfolioRateSensitivity(weights);
-  const adjusted = baseReturnPct + portSens * deltaRate;
-  const delta = adjusted - baseReturnPct;
+  const [deltas, setDeltas] = useState<Record<MacroFactor, number>>({
+    rate: 0, fx: 0, inflation: 0, vix: 0,
+  });
 
-  // 자산별 영향 (상위 3개)
+  // 모든 요인의 영향 합산
+  const factorContribs = (Object.keys(SENSITIVITY) as MacroFactor[]).map(f => ({
+    factor: f,
+    sens: _portfolioSensitivity(f, weights),
+    delta: deltas[f],
+    contrib: _portfolioSensitivity(f, weights) * deltas[f],
+  }));
+  const totalDelta = factorContribs.reduce((s, x) => s + x.contrib, 0);
+  const adjusted = baseReturnPct + totalDelta;
+
+  const tone = totalDelta > 0.05 ? "text-emerald-700" : totalDelta < -0.05 ? "text-red-600" : "text-slate-700";
+  const sign = totalDelta > 0 ? "+" : "";
+  const anyChange = factorContribs.some(c => Math.abs(c.delta) > 0.001);
+
+  // 자산별 영향 합산 (상위 3개)
   const assetImpacts = weights
-    .map(w => ({
-      name: w.name,
-      category: w.category,
-      impact: (w.weight_pct / 100) * (RATE_SENSITIVITY[w.asset_id] ?? 0) * deltaRate,
-    }))
+    .map(w => {
+      let impact = 0;
+      for (const f of Object.keys(SENSITIVITY) as MacroFactor[]) {
+        impact += (w.weight_pct / 100) * (SENSITIVITY[f][w.asset_id] ?? 0) * deltas[f];
+      }
+      return { name: w.name, category: w.category, impact };
+    })
     .filter(x => Math.abs(x.impact) > 0.01)
     .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
     .slice(0, 3);
 
-  const tone = delta > 0.05 ? "text-emerald-700" : delta < -0.05 ? "text-red-600" : "text-slate-700";
-  const sign = delta > 0 ? "+" : "";
+  const resetAll = () => setDeltas({ rate: 0, fx: 0, inflation: 0, vix: 0 });
 
   return (
     <div className="card-premium p-5">
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
           <span className="w-1 h-4 bg-gold rounded-sm" />
-          📈 기준금리 시나리오 시뮬레이션
+          📈 거시 변수 시나리오 시뮬레이션
         </p>
         <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">PB 전용 · 단순 추정</span>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        자산별 듀레이션·금리 민감도 기반 단순 모델. 실제 시장 반응과 차이가 있을 수 있습니다.
+        4가지 거시 변수를 동시에 조절해 포트폴리오 기대수익률 변동을 예측합니다.
+        자산별 듀레이션·민감도 기반 단순 모델로 실제 시장 반응과 차이가 있을 수 있습니다.
       </p>
 
-      {/* 슬라이더 */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">기준금리 변동</label>
-          <span className={`text-lg font-bold tabular-nums ${deltaRate > 0 ? "text-red-600" : deltaRate < 0 ? "text-emerald-700" : "text-slate-500"}`}>
-            {deltaRate > 0 ? "+" : ""}{deltaRate.toFixed(2)} %p
-          </span>
-        </div>
-        <input
-          type="range" min="-3" max="3" step="0.25"
-          value={deltaRate}
-          onChange={e => setDeltaRate(parseFloat(e.target.value))}
-          className="w-full h-2 bg-gradient-to-r from-emerald-200 via-slate-200 to-red-200 rounded-lg appearance-none cursor-pointer accent-navy"
-        />
-        <div className="flex justify-between text-[10px] text-slate-400 mt-1 px-1">
-          <span>↓ -3%p (금리 인하)</span>
-          <span>현재</span>
-          <span>+3%p (금리 인상) ↑</span>
-        </div>
+      {/* 슬라이더 4개 */}
+      <div className="space-y-4 mb-5">
+        {(Object.keys(FACTOR_META) as MacroFactor[]).map(f => {
+          const meta = FACTOR_META[f];
+          const v = deltas[f];
+          const isPos = v > 0;
+          const isNeg = v < 0;
+          return (
+            <div key={f}>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <span>{meta.emoji}</span>
+                  <span>{meta.label}</span>
+                </label>
+                <span className={`text-sm font-bold tabular-nums ${isPos ? "text-red-600" : isNeg ? "text-emerald-700" : "text-slate-400"}`}>
+                  {v > 0 ? "+" : ""}{v.toFixed(meta.step < 1 ? 2 : 0)} {meta.unit}
+                </span>
+              </div>
+              <input
+                type="range" min={meta.min} max={meta.max} step={meta.step}
+                value={v}
+                onChange={e => setDeltas(d => ({ ...d, [f]: parseFloat(e.target.value) }))}
+                className="w-full h-1.5 bg-gradient-to-r from-emerald-200 via-slate-200 to-red-200 rounded-lg appearance-none cursor-pointer accent-navy"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 px-0.5">
+                <span>{meta.low}</span>
+                <span>{meta.high}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* 결과 */}
+      {/* 결과 카드 3개 */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-slate-50 rounded-lg p-3 text-center">
           <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">기존</p>
@@ -560,17 +609,32 @@ function RateScenarioCard({ baseReturnPct, weights }: {
         </div>
         <div className="bg-slate-50 rounded-lg p-3 text-center">
           <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider">변동</p>
-          <p className={`text-xl font-bold tabular-nums ${tone}`}>{sign}{delta.toFixed(2)}%p</p>
+          <p className={`text-xl font-bold tabular-nums ${tone}`}>{sign}{totalDelta.toFixed(2)}%p</p>
         </div>
       </div>
 
-      <div className="text-[11px] text-slate-500 mb-2">
-        포트폴리오 금리 민감도: <strong className="text-navy tabular-nums">{portSens >= 0 ? "+" : ""}{portSens.toFixed(2)}</strong>
-        <span className="text-slate-400 ml-1">(금리 1%p 변동 시 수익률 변동폭)</span>
-      </div>
+      {/* 요인별 기여도 */}
+      {anyChange && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wider">요인별 기여도</p>
+          <ul className="space-y-1.5">
+            {factorContribs.filter(c => Math.abs(c.contrib) > 0.005).map(c => (
+              <li key={c.factor} className="flex items-center justify-between text-xs">
+                <span className="text-slate-600">
+                  {FACTOR_META[c.factor].emoji} {FACTOR_META[c.factor].label}
+                  <span className="text-slate-400 ml-1.5">감도 {c.sens >= 0 ? "+" : ""}{c.sens.toFixed(2)}</span>
+                </span>
+                <span className={`font-semibold tabular-nums ${c.contrib > 0 ? "text-emerald-700" : "text-red-600"}`}>
+                  {c.contrib > 0 ? "+" : ""}{c.contrib.toFixed(2)}%p
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* 영향 큰 자산 TOP 3 */}
-      {Math.abs(deltaRate) > 0.01 && assetImpacts.length > 0 && (
+      {anyChange && assetImpacts.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
           <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wider">영향이 큰 자산</p>
           <ul className="space-y-1">
@@ -586,10 +650,10 @@ function RateScenarioCard({ baseReturnPct, weights }: {
         </div>
       )}
 
-      {Math.abs(deltaRate) > 0.01 && (
-        <button onClick={() => setDeltaRate(0)}
+      {anyChange && (
+        <button onClick={resetAll}
           className="mt-3 text-xs text-slate-400 hover:text-navy underline">
-          기준값으로 리셋
+          모든 변수 리셋
         </button>
       )}
     </div>
