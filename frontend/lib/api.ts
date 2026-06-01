@@ -108,6 +108,30 @@ export interface ConfirmedPortfolio {
   confirmed_at: string;
 }
 
+export interface TaxProductCandidate {
+  product_id: "isa" | "pension_savings" | "irp" | "tax_free_savings";
+  name: string;
+  one_liner: string;
+  limit_text: string;
+  eligible: boolean;
+  eligibility_note: string;
+  estimated_saving_won: number | null;
+  saving_basis: string;
+}
+
+export interface TaxStrategyRanked {
+  product_id: TaxProductCandidate["product_id"];
+  priority: "high" | "medium" | "low";
+  reason: string;
+  caveats: string;
+}
+
+export interface TaxStrategyResult {
+  candidates: TaxProductCandidate[];
+  summary: string;
+  ranked: TaxStrategyRanked[];
+}
+
 // ─── 고객 API ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -137,6 +161,8 @@ export const api = {
     clearConfirmed: (session_id: string) =>
       fetch(`${BASE}/portfolio/sessions/${session_id}/confirm`, { method: "DELETE" })
         .then(res => { if (!res.ok && res.status !== 204) throw new Error("확정 해제 실패"); }),
+    taxStrategy: (session_id: string) =>
+      req<TaxStrategyResult>(`/portfolio/sessions/${session_id}/tax-strategy`, { method: "POST" }),
   },
   sessions: {
     list: (params?: { customer_id?: string; status?: string }) => {

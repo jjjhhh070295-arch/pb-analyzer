@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { api, type PortfolioResult, type PortfolioWeight, type ConfirmedPortfolio } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { api, type PortfolioResult, type PortfolioWeight, type ConfirmedPortfolio, type TaxStrategyResult, type TaxProductCandidate, type TaxStrategyRanked } from "@/lib/api";
 
 const CATEGORY_COLOR: Record<string, string> = {
   "국내주식": "bg-blue-900",
@@ -56,6 +56,19 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
   const [savingPortfolio, setSavingPortfolio] = useState(false);
   const [note, setNote] = useState(initialConfirmedPortfolio?.note ?? "");
   const [isConfirmedView, setIsConfirmedView] = useState(!!initialConfirmedPortfolio);
+
+  // 절세 전략 (포트폴리오 확정 여부와 무관하게 PB 검수 확정 후 자동 호출)
+  const [taxStrategy, setTaxStrategy] = useState<TaxStrategyResult | null>(null);
+  const [taxLoading, setTaxLoading] = useState(false);
+
+  useEffect(() => {
+    if (!confirmed) return;
+    setTaxLoading(true);
+    api.portfolio.taxStrategy(sessionId)
+      .then(setTaxStrategy)
+      .catch(() => {/* 절세 전략 실패는 조용히 무시 — 메인 흐름 방해 X */})
+      .finally(() => setTaxLoading(false));
+  }, [sessionId, confirmed]);
 
   const run = async () => {
     setLoading(true);
@@ -307,6 +320,19 @@ export default function PortfolioTab({ sessionId, confirmed, initialConfirmedPor
         </ul>
       </div>
 
+      {/* 절세 전략 */}
+      <TaxStrategyCard
+        loading={taxLoading}
+        strategy={taxStrategy}
+        onRefresh={() => {
+          setTaxLoading(true);
+          api.portfolio.taxStrategy(sessionId)
+            .then(setTaxStrategy)
+            .catch(() => {})
+            .finally(() => setTaxLoading(false));
+        }}
+      />
+
       {/* 액션 버튼 */}
       <div className="flex justify-between items-center">
         <button onClick={run} className="text-xs text-slate-400 hover:text-navy underline transition-colors">
@@ -339,6 +365,116 @@ function MetricCard({ label, value, sub, valueColor }: { label: string; value: s
       <p className="text-[11px] text-slate-400 mb-1 uppercase tracking-wider">{label}</p>
       <p className={`text-2xl font-bold ${valueColor} tabular-nums`}>{value}</p>
       <p className="text-[11px] text-slate-400 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+const PRIORITY_STYLE = {
+  high:   { badge: "bg-gold text-white",         label: "1순위 검토" },
+  medium: { badge: "bg-blue-100 text-navy",      label: "2순위 검토" },
+  low:    { badge: "bg-slate-100 text-slate-600", label: "참고" },
+} as const;
+
+const KRW = new Intl.NumberFormat("ko-KR");
+
+function TaxStrategyCard({ loading, strategy, onRefresh }: {
+  loading: boolean;
+  strategy: TaxStrategyResult | null;
+  onRefresh: () => void;
+}) {
+  if (loading && !strategy) {
+    return (
+      <div className="card-premium px-6 py-8 text-center text-slate-500 text-sm">
+        <span className="animate-spin inline-block mr-2">⏳</span> 절세 전략 분석 중…
+      </div>
+    );
+  }
+  if (!strategy) return null;
+
+  // ranked priority 순서로 정렬한 후보 리스트
+  const cands = [...strategy.candidates];
+  const priorityMap = new Map(strategy.ranked.map(r => [r.product_id, r]));
+  cands.sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 } as const;
+    const ar = priorityMap.get(a.product_id)?.priority ?? "low";
+    const br = priorityMap.get(b.product_id)?.priority ?? "low";
+    return order[ar] - order[br];
+  });
+
+  return (
+    <div className="card-premium p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+          <span className="w-1 h-4 bg-gold rounded-sm" />
+          💼 절세 전략 분석
+        </p>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">
+            PB 검토용 · 자문 아님
+          </span>
+          <button onClick={onRefresh}
+            className="text-xs text-slate-400 hover:text-navy underline">재분석</button>
+        </div>
+      </div>
+
+      {/* 전략 요약 */}
+      {strategy.summary && (
+        <div className="bg-gold-light/40 border-l-4 border-gold rounded px-4 py-3 mb-4 text-sm text-slate-700 leading-relaxed">
+          {strategy.summary}
+        </div>
+      )}
+
+      {/* 상품 카드 리스트 */}
+      <ul className="space-y-3">
+        {cands.map(c => {
+          const rk = priorityMap.get(c.product_id);
+          const ps = rk ? PRIORITY_STYLE[rk.priority] : PRIORITY_STYLE.low;
+          return (
+            <li key={c.product_id}
+              className={`border rounded-lg p-4 transition-colors ${c.eligible ? "border-slate-200 hover:border-gold" : "border-slate-200 bg-slate-50/50"}`}>
+              <div className="flex items-start justify-between gap-3 mb-1.5 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${ps.badge}`}>{ps.label}</span>
+                  <span className="text-sm font-semibold text-slate-900">{c.name}</span>
+                  {!c.eligible && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-500">자격 확인</span>
+                  )}
+                </div>
+                {c.estimated_saving_won != null && (
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">예상 절감</span>
+                    <span className="text-sm font-bold text-gold tabular-nums">
+                      {KRW.format(c.estimated_saving_won)}원/년
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mb-2">{c.one_liner}</p>
+              <p className="text-[11px] text-slate-600 mb-2">📐 {c.limit_text}</p>
+
+              {rk && (
+                <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                  <p className="text-xs text-slate-700">
+                    <span className="text-gold font-semibold">검토 이유 · </span>{rk.reason}
+                  </p>
+                  {rk.caveats && (
+                    <p className="text-xs text-slate-500">
+                      <span className="font-semibold">⚠ 주의 · </span>{rk.caveats}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[10px] text-slate-400 mt-2">{c.eligibility_note}</p>
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="text-[10px] text-slate-400 mt-4 leading-relaxed">
+        본 분석은 PB 검토를 돕기 위한 자료이며 세무 자문이 아닙니다.
+        실제 가입·매도 의사결정 전 한도·자격·소득구간을 반드시 확인하세요.
+      </p>
     </div>
   );
 }

@@ -48,3 +48,29 @@ SENSITIVE_PATTERNS = {
 # --- A-3/A-4 트리거 키워드 ---
 HIGH_DIVIDEND_KEYWORDS = ("고배당", "배당주", "배당 많", "배당이 많")
 GIFT_KEYWORDS = ("증여", "상속", "물려", "자녀에게", "가족에게 나눠", "자산 분산")
+
+# ---------------------------------------------------------------------------
+# 절세 상품 한도·세율 (2026 기준 ★)
+# 법 개정 시 이 블록만 수정한다.
+# ---------------------------------------------------------------------------
+
+# ISA (개인종합자산관리계좌)
+ISA_TAX_FREE_LIMIT          = 2_000_000     # 일반형 비과세 한도(원, 손익통산 후)
+ISA_TAX_FREE_LIMIT_LOW_INC  = 4_000_000     # 서민형 비과세 한도
+ISA_LOW_TAX_RATE            = 0.099         # 초과분 분리과세율(9.9%)
+ISA_ANNUAL_DEPOSIT_LIMIT    = 20_000_000    # 연 납입 한도
+ISA_TOTAL_DEPOSIT_LIMIT     = 100_000_000   # 누적 한도
+
+# 연금저축
+PENSION_SAVINGS_LIMIT       = 6_000_000     # 연 세액공제 한도
+PENSION_TOTAL_LIMIT_W_IRP   = 9_000_000     # 연금저축+IRP 합산 한도
+PENSION_DEDUCT_RATE_LOW     = 0.165         # 총급여 5,500만 이하 (지방세 포함)
+PENSION_DEDUCT_RATE_HIGH    = 0.132         # 총급여 5,500만 초과
+PENSION_LOW_INCOME_LINE     = 55_000_000
+
+# IRP (개인형 퇴직연금)
+IRP_EXTRA_LIMIT             = 3_000_000     # 연금저축 600 + IRP 300 = 합산 900만원
+
+# 비과세 종합저축
+TAX_FREE_SAVINGS_LIMIT      = 50_000_000    # 한도(원)
+TAX_FREE_SAVINGS_MIN_AGE    = 65            # 일반 적격 연령 (장애인·국가유공자 등 별도)
